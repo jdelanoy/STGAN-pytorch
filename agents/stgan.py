@@ -80,34 +80,39 @@ class STGANAgent(object):
             self.optimizer_D.load_state_dict(D_checkpoint['optimizer'])
 
     def denorm(self, x):
+        #get from [-1,1] to [0,1]
         out = (x + 1) / 2
         return out.clamp_(0, 1)
 
     def create_labels(self, c_org, selected_attrs=None):
         """Generate target domain labels for debugging and testing."""
-        # get hair color indices
-        hair_color_indices = []
-        for i, attr_name in enumerate(selected_attrs):
-            if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
-                hair_color_indices.append(i)
+        #TODO add gaussian noise 
+        # # get hair color indices
+        # hair_color_indices = []
+        # for i, attr_name in enumerate(selected_attrs):
+        #     if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
+        #         hair_color_indices.append(i)
 
         c_trg_list = []
         for i in range(len(selected_attrs)):
             c_trg = c_org.clone()
-            if i in hair_color_indices:  # set one hair color to 1 and the rest to 0
-                c_trg[:, i] = 1
-                for j in hair_color_indices:
-                    if j != i:
-                        c_trg[:, j] = 0
-            else:
-                c_trg[:, i] = (c_trg[:, i] == 0)  # reverse attribute value
+            c_trg[:, i] = c_trg[:, i] + torch.randn_like(c_trg[:, i])*self.config.gaussian_stddev
+            # if i in hair_color_indices:  # set one hair color to 1 and the rest to 0
+            #     c_trg[:, i] = 1
+            #     for j in hair_color_indices:
+            #         if j != i:
+            #             c_trg[:, j] = 0
+            # else:
+            #     c_trg[:, i] = (c_trg[:, i] == 0)  # reverse attribute value
 
             c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
 
     def classification_loss(self, logit, target):
         """Compute binary cross entropy loss."""
-        return F.binary_cross_entropy_with_logits(logit, target, reduction='sum') / logit.size(0)
+        #TODO change to l2 loss (or l1)
+        return F.l1_loss(logit,target)/ logit.size(0)
+        #return F.binary_cross_entropy_with_logits(logit, target, reduction='sum') / logit.size(0)
 
     def gradient_penalty(self, y, x):
         """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
@@ -162,6 +167,7 @@ class STGANAgent(object):
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
         for i in range(self.current_iteration, self.config.max_iters):
+            #print(self.config.max_iters)
             self.G.train()
             self.D.train()
             # =================================================================================== #
@@ -176,8 +182,13 @@ class STGANAgent(object):
                 x_real, label_org = next(data_iter)
 
             # generate target domain labels randomly
-            rand_idx = torch.randperm(label_org.size(0))
-            label_trg = label_org[rand_idx]
+            #TODO add gaussian noise
+            #rand_idx = torch.randperm(label_org.size(0))
+            #label_trg = label_org[rand_idx]
+            #print(label_org)
+            label_trg = label_org + torch.randn_like(label_org)*self.config.gaussian_stddev
+            #print(torch.randn_like(label_org))#*self.config.gaussian_stddev)
+            #print(label_trg)
 
             c_org = label_org.clone()
             c_trg = label_trg.clone()
@@ -191,7 +202,6 @@ class STGANAgent(object):
             # =================================================================================== #
             #                             2. Train the discriminator                              #
             # =================================================================================== #
-
             # compute loss with real images
             out_src, out_cls = self.D(x_real)
             d_loss_real = - torch.mean(out_src)
@@ -199,7 +209,7 @@ class STGANAgent(object):
 
             # compute loss with fake images
             attr_diff = c_trg - c_org
-            attr_diff = attr_diff * torch.rand_like(attr_diff) * (2 * self.config.thres_int)
+            attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
             x_fake = self.G(x_real, attr_diff)
             out_src, out_cls = self.D(x_fake.detach())
             d_loss_fake = torch.mean(out_src)
@@ -229,7 +239,6 @@ class STGANAgent(object):
             # =================================================================================== #
             #                               3. Train the generator                                #
             # =================================================================================== #
-
             if (i + 1) % self.config.n_critic == 0:
                 # original-to-target domain
                 x_fake = self.G(x_real, attr_diff)
@@ -258,7 +267,6 @@ class STGANAgent(object):
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
             # =================================================================================== #
-
             if self.current_iteration % self.config.summary_step == 0:
                 et = time.time() - start_time
                 et = str(datetime.timedelta(seconds=et))[:-7]
@@ -273,7 +281,7 @@ class STGANAgent(object):
                     x_fake_list = [x_sample]
                     for c_trg_sample in c_sample_list:
                         attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
-                        attr_diff = attr_diff * self.config.thres_int
+                        attr_diff = attr_diff #* self.config.thres_int
                         x_fake_list.append(self.G(x_sample, attr_diff.to(self.device)))
                     x_concat = torch.cat(x_fake_list, dim=3)
                     self.writer.add_image('sample', make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
