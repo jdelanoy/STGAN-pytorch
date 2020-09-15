@@ -11,6 +11,11 @@ from torch.backends import cudnn
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
+from PIL import ImageFont
+from PIL import ImageDraw 
+from torchvision import transforms
+import numpy as np
+import cv2
 
 from datasets import *
 from models.stgan import Generator, Discriminator
@@ -199,80 +204,80 @@ class STGANAgent(object):
             label_org = label_org.to(self.device)   # labels for computing classification loss
             label_trg = label_trg.to(self.device)   # labels for computing classification loss
 
-            # =================================================================================== #
-            #                             2. Train the discriminator                              #
-            # =================================================================================== #
-            # compute loss with real images
-            out_src, out_cls = self.D(x_real)
-            d_loss_real = - torch.mean(out_src)
-            d_loss_cls = self.classification_loss(out_cls, label_org)
+            # # =================================================================================== #
+            # #                             2. Train the discriminator                              #
+            # # =================================================================================== #
+            # # compute loss with real images
+            # out_src, out_cls = self.D(x_real)
+            # d_loss_real = - torch.mean(out_src)
+            # d_loss_cls = self.classification_loss(out_cls, label_org)
 
-            # compute loss with fake images
-            attr_diff = c_trg - c_org
-            attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
-            x_fake = self.G(x_real, attr_diff)
-            out_src, out_cls = self.D(x_fake.detach())
-            d_loss_fake = torch.mean(out_src)
+            # # compute loss with fake images
+            # attr_diff = c_trg - c_org
+            # attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
+            # x_fake = self.G(x_real, attr_diff)
+            # out_src, out_cls = self.D(x_fake.detach())
+            # d_loss_fake = torch.mean(out_src)
 
-            # compute loss for gradient penalty
-            alpha = torch.rand(x_real.size(0), 1, 1, 1).to(self.device)
-            x_hat = (alpha * x_real.data + (1 - alpha) * x_fake.data).requires_grad_(True)
-            out_src, _ = self.D(x_hat)
-            d_loss_gp = self.gradient_penalty(out_src, x_hat)
+            # # compute loss for gradient penalty
+            # alpha = torch.rand(x_real.size(0), 1, 1, 1).to(self.device)
+            # x_hat = (alpha * x_real.data + (1 - alpha) * x_fake.data).requires_grad_(True)
+            # out_src, _ = self.D(x_hat)
+            # d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
-            # backward and optimize
-            d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
-            d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
-            self.optimizer_D.zero_grad()
-            d_loss.backward(retain_graph=True)
-            self.optimizer_D.step()
+            # # backward and optimize
+            # d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
+            # d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
+            # self.optimizer_D.zero_grad()
+            # d_loss.backward(retain_graph=True)
+            # self.optimizer_D.step()
 
-            # summarize
-            scalars = {}
-            scalars['D/loss'] = d_loss.item()
-            scalars['D/loss_adv'] = d_loss_adv.item()
-            scalars['D/loss_cls'] = d_loss_cls.item()
-            scalars['D/loss_real'] = d_loss_real.item()
-            scalars['D/loss_fake'] = d_loss_fake.item()
-            scalars['D/loss_gp'] = d_loss_gp.item()
+            # # summarize
+            # scalars = {}
+            # scalars['D/loss'] = d_loss.item()
+            # scalars['D/loss_adv'] = d_loss_adv.item()
+            # scalars['D/loss_cls'] = d_loss_cls.item()
+            # scalars['D/loss_real'] = d_loss_real.item()
+            # scalars['D/loss_fake'] = d_loss_fake.item()
+            # scalars['D/loss_gp'] = d_loss_gp.item()
 
-            # =================================================================================== #
-            #                               3. Train the generator                                #
-            # =================================================================================== #
-            if (i + 1) % self.config.n_critic == 0:
-                # original-to-target domain
-                x_fake = self.G(x_real, attr_diff)
-                out_src, out_cls = self.D(x_fake)
-                g_loss_adv = - torch.mean(out_src)
-                g_loss_cls = self.classification_loss(out_cls, label_trg)
+            # # =================================================================================== #
+            # #                               3. Train the generator                                #
+            # # =================================================================================== #
+            # if (i + 1) % self.config.n_critic == 0:
+            #     # original-to-target domain
+            #     x_fake = self.G(x_real, attr_diff)
+            #     out_src, out_cls = self.D(x_fake)
+            #     g_loss_adv = - torch.mean(out_src)
+            #     g_loss_cls = self.classification_loss(out_cls, label_trg)
 
-                # target-to-original domain
-                x_reconst = self.G(x_real, c_org - c_org)
-                g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
+            #     # target-to-original domain
+            #     x_reconst = self.G(x_real, c_org - c_org)
+            #     g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
-                # backward and optimize
-                g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
-                self.optimizer_G.zero_grad()
-                g_loss.backward()
-                self.optimizer_G.step()
+            #     # backward and optimize
+            #     g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+            #     self.optimizer_G.zero_grad()
+            #     g_loss.backward()
+            #     self.optimizer_G.step()
 
-                # summarize
-                scalars['G/loss'] = g_loss.item()
-                scalars['G/loss_adv'] = g_loss_adv.item()
-                scalars['G/loss_cls'] = g_loss_cls.item()
-                scalars['G/loss_rec'] = g_loss_rec.item()
+            #     # summarize
+            #     scalars['G/loss'] = g_loss.item()
+            #     scalars['G/loss_adv'] = g_loss_adv.item()
+            #     scalars['G/loss_cls'] = g_loss_cls.item()
+            #     scalars['G/loss_rec'] = g_loss_rec.item()
 
-            self.current_iteration += 1
+            #self.current_iteration += 1
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
             # =================================================================================== #
-            if self.current_iteration % self.config.summary_step == 0:
-                et = time.time() - start_time
-                et = str(datetime.timedelta(seconds=et))[:-7]
-                print('Elapsed [{}], Iteration [{}/{}]'.format(et, self.current_iteration, self.config.max_iters))
-                for tag, value in scalars.items():
-                    self.writer.add_scalar(tag, value, self.current_iteration)
+            # if self.current_iteration % self.config.summary_step == 0:
+            #     et = time.time() - start_time
+            #     et = str(datetime.timedelta(seconds=et))[:-7]
+            #     print('Elapsed [{}], Iteration [{}/{}]'.format(et, self.current_iteration, self.config.max_iters))
+            #     for tag, value in scalars.items():
+            #         self.writer.add_scalar(tag, value, self.current_iteration)
 
             if self.current_iteration % self.config.sample_step == 0:
                 self.G.eval()
@@ -282,14 +287,39 @@ class STGANAgent(object):
                     for c_trg_sample in c_sample_list:
                         attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
                         attr_diff = attr_diff #* self.config.thres_int
-                        x_fake_list.append(self.G(x_sample, attr_diff.to(self.device)))
+                        fake_image=self.G(x_sample, attr_diff.to(self.device))
+                        #print(fake_image.shape) 
+                        #print(attr_diff.shape)
+                        for im in range(fake_image.shape[0]):
+                            # image=(fake_image[im].cpu().numpy().transpose((1,2,0))*255).astype(np.uint8)
+                            # print(image.shape)
+
+                            # cv2.putText(
+                            #     image, #numpy array on which text is written
+                            #     str(0.5), #text
+                            #     (50,50), #position at which writing has to start
+                            #     cv2.FONT_HERSHEY_SIMPLEX, #font family
+                            #     5, #font size
+                            #     (255,255,255, 255), #font color
+                            #     4) #font stroke
+                            # cv2.imwrite('output.png', image)
+
+                            image=transforms.ToPILImage()(fake_image[im])
+                            draw = ImageDraw.Draw(image)
+                            #font = ImageFont.truetype("sans-serif.ttf", 16)
+                            for i in range(attr_diff.shape[1]):
+                               draw.text((0, i*10),str(attr_diff[im][i].item()),(255,255,255))
+                            #image.show()
+                            #image.save('sample-out.jpg')
+                            fake_image[im]=transforms.ToTensor()(image)
+                        x_fake_list.append(fake_image)
                     x_concat = torch.cat(x_fake_list, dim=3)
                     self.writer.add_image('sample', make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
                                           self.current_iteration)
                     save_image(self.denorm(x_concat.data.cpu()),
                                os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),
                                nrow=1, padding=0)
-
+                exit()
             if self.current_iteration % self.config.checkpoint_step == 0:
                 self.save_checkpoint()
 
