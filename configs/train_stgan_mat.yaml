@@ -1,5 +1,5 @@
 # meta
-exp_name: stgan
+exp_name: stgan_100
 mode: train
 cuda: true
 ngpu: 1
@@ -23,7 +23,7 @@ stu_kernel_size: 3
 use_stu: true
 one_more_conv: true
 attrs: [glossy,metallic,rough]
-checkpoint: ~
+checkpoint: 9900
 
 # training
 batch_size: 32
@@ -34,10 +34,10 @@ d_lr: 0.0002
 n_critic: 5
 thres_int: 0.5
 lambda_gp: 10
-lambda_att: 10
-lambda_g_att: 100
+lambda_att: 100
+lambda_g_att: 1000
 lambda_g_rec: 100
-max_iters: 10000
+max_iters: 10300
 lr_decay_iters: 800000
 
 # steps:
