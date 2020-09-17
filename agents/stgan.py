@@ -291,24 +291,22 @@ class STGANAgent(object):
                         #print(fake_image.shape) 
                         #print(attr_diff.shape)
                         for im in range(fake_image.shape[0]):
-                            # image=(fake_image[im].cpu().numpy().transpose((1,2,0))*255).astype(np.uint8)
-                            # cv2.putText(
-                            #     image, #numpy array on which text is written
-                            #     str(0.5), #text
-                            #     (50,50), #position at which writing has to start
-                            #     cv2.FONT_HERSHEY_SIMPLEX, #font family
-                            #     5, #font size
-                            #     (255,255,255, 255), #font color
-                            #     4) #font stroke
-                            # cv2.imwrite('output.png', image)
-
-                            image=transforms.ToPILImage()(fake_image[im].cpu())
-                            draw = ImageDraw.Draw(image)
-                            #font = ImageFont.truetype("sans-serif.ttf", 16)
+                            #image=(fake_image[im].cpu().detach().numpy().transpose((1,2,0))*127.5+127.5).astype(np.uint8)
+                            image=np.zeros((128,128,3), np.uint8)
                             for i in range(attr_diff.shape[1]):
-                               draw.text((0, i*10),str(attr_diff[im][i].item()),(255,255,255))
+                                cv2.putText(image, "%.2f"%(attr_diff[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255,255), 2, 8)
+                            image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
+                            #print(image.shape)
 
-                            fake_image[im]=transforms.ToTensor()(image)
+                            #min=fake_image[im].min(); max=fake_image[im].max()
+                            #print("tensor",min,max)
+                            # image=transforms.ToPILImage()(fake_image[im].cpu())
+                            # # draw = ImageDraw.Draw(image)
+                            # # #font = ImageFont.truetype("sans-serif.ttf", 16)
+                            # # for i in range(attr_diff.shape[1]):
+                            # #    draw.text((0, i*10),str(attr_diff[im][i].item()),(255,255,255))
+
+                            fake_image[im]=torch.from_numpy(image) #transforms.ToTensor()(image)*(2)-1
                         x_fake_list.append(fake_image)
                     x_concat = torch.cat(x_fake_list, dim=3)
                     self.writer.add_image('sample', make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
