@@ -1,1 +1,1 @@
-from .stgan import STGANAgent
+from .stgan_classif import STGANAgent
