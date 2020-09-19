@@ -294,7 +294,7 @@ class STGANAgent(object):
                             #image=(fake_image[im].cpu().detach().numpy().transpose((1,2,0))*127.5+127.5).astype(np.uint8)
                             image=np.zeros((128,128,3), np.uint8)
                             for i in range(attr_diff.shape[1]):
-                                cv2.putText(image, "%.2f"%(attr_diff[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255,255), 2, 8)
+                                cv2.putText(image, "%.2f"%(attr_diff[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                             image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                             #print(image.shape)
 
