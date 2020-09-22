@@ -4,6 +4,7 @@ import torch
 from torch.utils import data
 from torchvision import transforms
 from PIL import Image
+import random
 
 
 def make_dataset(root, mode, selected_attrs):
@@ -19,11 +20,24 @@ def make_dataset(root, mode, selected_attrs):
 
     lines = lines[1:]
     if mode == 'train':
-        lines = lines[985:]       # train set contains 200599 images
+        lines = lines[985:]  # train set contains 200599 images
     if mode == 'val':
         lines = lines[:992]  # val set contains 200 images
     if mode == 'test':
-        lines = lines[:992]       # test set contains 1800 images
+        # #only from havran
+        # lines = lines[:985]  # test set contains 1800 images
+        # #only from one shape
+        # shape="bunny"
+        # lines=[line for line in lines if shape in line]
+        #only from one shape/one env
+        shape="statue"
+        env=""
+        lines=[line for line in lines if (shape in line and env in line)]
+        # #all
+
+        #take 100 random images
+        random.shuffle(lines)
+        lines=lines[:200]
     print(len(lines))
     items = []
     for i, line in enumerate(lines):
