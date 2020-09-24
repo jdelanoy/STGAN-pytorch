@@ -34,8 +34,8 @@ d_lr: 0.0002
 n_critic: 5
 thres_int: 0.5
 lambda_gp: 10
-lambda_att: 1000
-lambda_g_att: 10000
+lambda_att: 10000
+lambda_g_att: 100000
 lambda_g_rec: 100
 max_iters: 30000
 lr_decay_iters: 11000

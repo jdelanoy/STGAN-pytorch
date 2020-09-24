@@ -144,6 +144,7 @@ class STGANAgent(object):
             attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
             attr_diff = attr_diff #* self.config.thres_int
             fake_image=self.G(x_sample, attr_diff.to(self.device))
+            out_src, out_cls = self.D(fake_image.detach())
             #print(fake_image.shape) 
             #print(attr_diff.shape)
             for im in range(fake_image.shape[0]):
@@ -151,6 +152,7 @@ class STGANAgent(object):
                 image=np.zeros((128,128,3), np.uint8)
                 for i in range(attr_diff.shape[1]):
                     cv2.putText(image, "%.2f"%(attr_diff[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+                    cv2.putText(image, "%.2f"%(out_cls[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                 #print(image.shape)
 
