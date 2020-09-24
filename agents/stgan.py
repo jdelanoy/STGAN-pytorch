@@ -151,7 +151,7 @@ class STGANAgent(object):
                 #image=(fake_image[im].cpu().detach().numpy().transpose((1,2,0))*127.5+127.5).astype(np.uint8)
                 image=np.zeros((128,128,3), np.uint8)
                 for i in range(attr_diff.shape[1]):
-                    cv2.putText(image, "%.2f"%(attr_diff[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+                    cv2.putText(image, "%.2f"%(c_trg_sample[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                     cv2.putText(image, "%.2f"%(out_cls[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                 #print(image.shape)
@@ -178,6 +178,7 @@ class STGANAgent(object):
             if self.config.mode == 'train':
                 self.train()
             else:
+                self.test()
                 self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
@@ -343,7 +344,7 @@ class STGANAgent(object):
         all_figs=[]; ax=[]
         with torch.no_grad():
             for i in range(len(self.config.attrs)):
-                all_figs.append([plt.figure(figsize=(8, 12)),plt.figure(figsize=(8, 12))])
+                all_figs.append([plt.figure(figsize=(8,12)),plt.figure(figsize=(8,12))])
                 ax.append([all_figs[i][0].gca(),all_figs[i][1].gca()])
             for i, (x_real, c_org) in enumerate(tqdm_loader):
                 x_real = x_real.to(self.device)
@@ -363,7 +364,7 @@ class STGANAgent(object):
                                 ax=ax[att][1])
                         #print(out_cls[j][att])
             for i in range(len(self.config.attrs)):
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,0))
+                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,"0"))
                 print(result_path)
                 all_figs[i][0].savefig(result_path, dpi=300, bbox_inches='tight')
                 #all_figs[i][0].show()
@@ -381,6 +382,7 @@ class STGANAgent(object):
         with torch.no_grad():
             for i, (x_real, c_org) in enumerate(tqdm_loader):
                 c_trg_list = self.create_labels(c_org, self.config.attrs)
+                c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1)),writer=False)
                 #x_real = x_real.to(self.device)
                 # x_fake_list = [x_real]
