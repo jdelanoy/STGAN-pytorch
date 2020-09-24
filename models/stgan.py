@@ -154,6 +154,7 @@ class Discriminator(nn.Module):
             nn.Linear(conv_dim * 2 ** (n_layers - 1) * feature_size ** 2, fc_dim),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             nn.Linear(fc_dim, attr_dim),
+            nn.Tanh()
         )
 
     def forward(self, x):
