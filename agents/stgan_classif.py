@@ -20,8 +20,10 @@ import cv2
 from datasets import *
 from models.stgan import Generator, Discriminator
 from utils.misc import print_cuda_statistics
-from utils.im_util import _imscatter
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from utils.im_util import _imscatter
 import numpy as np
 
 cudnn.benchmark = True
@@ -231,14 +233,14 @@ class STGANAgent(object):
                 out_src, out_cls = self.D(x_real)
                 for j in range(x_real.shape[0]):
                     for att in range(len(self.config.attrs)):
-                        _imscatter(c_org[j][att], np.random.random(),
-                                image=x_real[j],
+                        _imscatter(c_org[j][att].cpu(), np.random.random(),
+                                image=x_real[j].cpu(),
                                 color='white',
                                 zoom=0.1,
                                 ax=ax[att][0])
                         
-                        _imscatter(out_cls[j][att], np.random.random(),
-                                image=x_real[j],
+                        _imscatter(out_cls[j][att].cpu(), np.random.random(),
+                                image=x_real[j].cpu(),
                                 color='white',
                                 zoom=0.1,
                                 ax=ax[att][1])
