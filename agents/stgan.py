@@ -266,8 +266,9 @@ class STGANAgent(object):
             d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
             # backward and optimize
-            d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
-            d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
+            #d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
+            #d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
+            d_loss=d_loss_cls
             self.optimizer_D.zero_grad()
             d_loss.backward(retain_graph=True)
             self.optimizer_D.step()
@@ -296,7 +297,8 @@ class STGANAgent(object):
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # backward and optimize
-                g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+                #g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+                g_loss = self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
                 self.optimizer_G.zero_grad()
                 g_loss.backward()
                 self.optimizer_G.step()
