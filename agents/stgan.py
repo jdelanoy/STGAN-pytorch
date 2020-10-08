@@ -208,7 +208,7 @@ class STGANAgent(object):
 
         self.g_lr = self.lr_scheduler_G.get_lr()[0]
         self.d_lr = self.lr_scheduler_D.get_lr()[0]
-
+        print(self.g_lr,self.d_lr)
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
         for i in range(self.current_iteration, self.config.max_iters):
@@ -266,9 +266,9 @@ class STGANAgent(object):
             d_loss_gp = self.gradient_penalty(out_src, x_hat)
 
             # backward and optimize
-            #d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
-            #d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
-            d_loss=d_loss_cls
+            d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
+            d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
+            #d_loss=d_loss_cls
             self.optimizer_D.zero_grad()
             d_loss.backward(retain_graph=True)
             self.optimizer_D.step()
@@ -285,7 +285,7 @@ class STGANAgent(object):
             # =================================================================================== #
             #                               3. Train the generator                                #
             # =================================================================================== #
-            if (i + 1) % self.config.n_critic == 0:
+            if (i + 1) % self.config.n_critic == 0: # and i>20000:  
                 # original-to-target domain
                 x_fake = self.G(x_real, attr_diff)
                 out_src, out_cls = self.D(x_fake)
@@ -297,8 +297,8 @@ class STGANAgent(object):
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # backward and optimize
-                #g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
-                g_loss = self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+                g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+                #g_loss = self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
                 self.optimizer_G.zero_grad()
                 g_loss.backward()
                 self.optimizer_G.step()
@@ -332,6 +332,9 @@ class STGANAgent(object):
 
             self.lr_scheduler_G.step()
             self.lr_scheduler_D.step()
+            scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
+            scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
+            #print(self.g_lr,self.d_lr)
 
     def test_classif(self):
         self.load_checkpoint()
@@ -353,14 +356,14 @@ class STGANAgent(object):
                 out_src, out_cls = self.D(x_real)
                 for j in range(x_real.shape[0]):
                     for att in range(len(self.config.attrs)):
-                        _imscatter(c_org[j][att], np.random.random(),
-                                image=x_real[j],
+                        _imscatter(c_org[j][att].cpu(), np.random.random(),
+                                image=x_real[j].cpu(),
                                 color='white',
                                 zoom=0.1,
                                 ax=ax[att][0])
                         
-                        _imscatter(out_cls[j][att], np.random.random(),
-                                image=x_real[j],
+                        _imscatter(out_cls[j][att].cpu(), np.random.random(),
+                                image=x_real[j].cpu(),
                                 color='white',
                                 zoom=0.1,
                                 ax=ax[att][1])

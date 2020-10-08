@@ -20,9 +20,9 @@ def make_dataset(root, mode, selected_attrs):
 
     lines = lines[1:]
     if mode == 'train':
-        lines = lines[985:]  # train set contains 200599 images
+        lines = lines[:]  # train set contains 200599 images 985:
     if mode == 'val':
-        lines = lines[:992]  # val set contains 200 images
+        lines = lines[:]  # val set contains 200 images :992
     if mode == 'test':
         # #only from havran
         # lines = lines[:985]  # test set contains 1800 images
@@ -30,7 +30,7 @@ def make_dataset(root, mode, selected_attrs):
         # shape="bunny"
         # lines=[line for line in lines if shape in line]
         #only from one shape/one env
-        shape="statue"
+        shape=""
         env=""
         lines=[line for line in lines if (shape in line and env in line)]
         # #all
@@ -62,7 +62,7 @@ class MaterialDataset(data.Dataset):
 
     def __getitem__(self, index):
         filename, label = self.items[index]
-        image = Image.open(os.path.join(self.root, '256px_dataset', filename))
+        image = Image.open(os.path.join(self.root, 'doge2', filename))
         if self.transform is not None:
             image = self.transform(image)
         return image, torch.FloatTensor(label)

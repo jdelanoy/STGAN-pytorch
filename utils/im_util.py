@@ -1,3 +1,5 @@
+import matplotlib as mpl
+mpl.use('Agg')
 from matplotlib import pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from skimage import transform
