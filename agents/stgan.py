@@ -104,16 +104,11 @@ class STGANAgent(object):
         c_trg_list = []
         for i in range(len(selected_attrs)):
             c_trg = c_org.clone()
-            c_trg[:, i] = c_trg[:, i] + torch.randn_like(c_trg[:, i])*self.config.gaussian_stddev
-            # if i in hair_color_indices:  # set one hair color to 1 and the rest to 0
-            #     c_trg[:, i] = 1
-            #     for j in hair_color_indices:
-            #         if j != i:
-            #             c_trg[:, j] = 0
-            # else:
-            #     c_trg[:, i] = (c_trg[:, i] == 0)  # reverse attribute value
-
-            c_trg_list.append(c_trg.to(self.device))
+            alphas = np.linspace(-5, 5, 10)
+            alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
+            for alpha in alphas:
+                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) #c_trg[:, i] + torch.randn_like(c_trg[:, i])*self.config.gaussian_stddev   A
+                c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
 
     def classification_loss(self, logit, target):
@@ -154,16 +149,6 @@ class STGANAgent(object):
                     cv2.putText(image, "%.2f"%(c_trg_sample[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                     cv2.putText(image, "%.2f"%(out_cls[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
-                #print(image.shape)
-
-                #min=fake_image[im].min(); max=fake_image[im].max()
-                #print("tensor",min,max)
-                # image=transforms.ToPILImage()(fake_image[im].cpu())
-                # # draw = ImageDraw.Draw(image)
-                # # #font = ImageFont.truetype("sans-serif.ttf", 16)
-                # # for i in range(attr_diff.shape[1]):
-                # #    draw.text((0, i*10),str(attr_diff[im][i].item()),(255,255,255))
-
                 fake_image[im]=torch.from_numpy(image) #transforms.ToTensor()(image)*(2)-1
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
