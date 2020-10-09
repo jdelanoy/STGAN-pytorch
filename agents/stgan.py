@@ -103,10 +103,10 @@ class STGANAgent(object):
 
         c_trg_list = []
         for i in range(len(selected_attrs)):
-            c_trg = c_org.clone()
-            alphas = np.linspace(-5, 5, 10)
-            alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
+            alphas = np.linspace(-5.0, 5.0, 10)
+            #alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
             for alpha in alphas:
+                c_trg = c_org.clone()
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) #c_trg[:, i] + torch.randn_like(c_trg[:, i])*self.config.gaussian_stddev   A
                 c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
