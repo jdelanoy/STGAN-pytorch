@@ -18,7 +18,7 @@ import numpy as np
 import cv2
 
 from datasets import *
-from models.stgan import Generator, Discriminator
+from models.stgan import Generator, Discriminator, Latent_Discriminator
 from utils.misc import print_cuda_statistics
 from utils.im_util import _imscatter
 import matplotlib.pyplot as plt
@@ -33,8 +33,12 @@ class STGANAgent(object):
         self.logger = logging.getLogger("STGAN")
         self.logger.info("Creating STGAN architecture...")
 
-        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv)
-        self.D = Discriminator(self.config.image_size, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
+        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,attr_each_deconv=self.config.attr_each_deconv)
+        self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
+        self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, self.config.shortcut_layers)
+        print(self.G)
+        print(self.D)
+        print(self.LD)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
@@ -54,38 +58,46 @@ class STGANAgent(object):
         self.writer = SummaryWriter(log_dir=self.config.summary_dir)
 
     def save_checkpoint(self):
-        G_state = {
-            'state_dict': self.G.state_dict(),
-            'optimizer': self.optimizer_G.state_dict(),
-        }
-        D_state  = {
-            'state_dict': self.D.state_dict(),
-            'optimizer': self.optimizer_D.state_dict(),
-        }
-        G_filename = 'G_{}.pth.tar'.format(self.current_iteration)
-        D_filename = 'D_{}.pth.tar'.format(self.current_iteration)
-        torch.save(G_state, os.path.join(self.config.checkpoint_dir, G_filename))
-        torch.save(D_state, os.path.join(self.config.checkpoint_dir, D_filename))
+        def save_one_model(model,optimizer,name):
+            state = {
+                'state_dict': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            }
+            torch.save(state, os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.current_iteration)))
+        save_one_model(self.G,self.optimizer_G,'G')
+        save_one_model(self.D,self.optimizer_D,'D')
+        save_one_model(self.LD,self.optimizer_LD,'LD')
 
     def load_checkpoint(self):
         if self.config.checkpoint is None:
             self.G.to(self.device)
             self.D.to(self.device)
+            self.LD.to(self.device)
             return
-        G_filename = 'G_{}.pth.tar'.format(self.config.checkpoint)
-        D_filename = 'D_{}.pth.tar'.format(self.config.checkpoint)
-        G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, G_filename),map_location=torch.device('cpu'))
-        D_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, D_filename),map_location=torch.device('cpu'))
-        G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
-        D_to_load = {k.replace('module.', ''): v for k, v in D_checkpoint['state_dict'].items()}
-        self.current_iteration = self.config.checkpoint
-        self.G.load_state_dict(G_to_load)
-        self.D.load_state_dict(D_to_load)
-        self.G.to(self.device)
-        self.D.to(self.device)
-        if self.config.mode == 'train':
-            self.optimizer_G.load_state_dict(G_checkpoint['optimizer'])
-            self.optimizer_D.load_state_dict(D_checkpoint['optimizer'])
+        def load_one_model(model,optimizer,name):
+            G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.config.checkpoint)),map_location=torch.device('cpu'))
+            G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
+            model.load_state_dict(G_to_load)
+            model.to(self.device)
+            if self.config.mode == 'train':
+                optimizer.load_state_dict(G_checkpoint['optimizer'])
+        load_one_model(self.G,self.optimizer_G,'G')
+        load_one_model(self.D,self.optimizer_D,'D')
+        load_one_model(self.LD,self.optimizer_LD,'LD')
+        # G_filename = 'G_{}.pth.tar'.format(self.config.checkpoint)
+        # D_filename = 'D_{}.pth.tar'.format(self.config.checkpoint)
+        # G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, G_filename),map_location=torch.device('cpu'))
+        # D_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, D_filename),map_location=torch.device('cpu'))
+        # G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
+        # D_to_load = {k.replace('module.', ''): v for k, v in D_checkpoint['state_dict'].items()}
+        # self.current_iteration = self.config.checkpoint
+        # self.G.load_state_dict(G_to_load)
+        # self.D.load_state_dict(D_to_load)
+        # self.G.to(self.device)
+        # self.D.to(self.device)
+        # if self.config.mode == 'train':
+        #     self.optimizer_G.load_state_dict(G_checkpoint['optimizer'])
+        #     self.optimizer_D.load_state_dict(D_checkpoint['optimizer'])
 
     def denorm(self, x):
         #get from [-1,1] to [0,1]
@@ -138,8 +150,8 @@ class STGANAgent(object):
         for c_trg_sample in c_sample_list:
             attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
             attr_diff = attr_diff #* self.config.thres_int
-            fake_image=self.G(x_sample, attr_diff.to(self.device))
-            out_src, out_cls = self.D(fake_image.detach())
+            fake_image,_=self.G(x_sample, attr_diff.to(self.device))
+            out_disc, out_att = self.D(fake_image.detach())
             #print(fake_image.shape) 
             #print(attr_diff.shape)
             for im in range(fake_image.shape[0]):
@@ -147,7 +159,7 @@ class STGANAgent(object):
                 image=np.zeros((128,128,3), np.uint8)
                 for i in range(attr_diff.shape[1]):
                     cv2.putText(image, "%.2f"%(c_trg_sample[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
-                    cv2.putText(image, "%.2f"%(out_cls[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+                    cv2.putText(image, "%.2f"%(out_att[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                 fake_image[im]=torch.from_numpy(image) #transforms.ToTensor()(image)*(2)-1
             x_fake_list.append(fake_image)
@@ -177,112 +189,149 @@ class STGANAgent(object):
     def train(self):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_D = optim.Adam(self.D.parameters(), self.config.d_lr, [self.config.beta1, self.config.beta2])
+        self.optimizer_LD = optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2])
         self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1)
         self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1)
+        self.lr_scheduler_LD = optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1)
 
         self.load_checkpoint()
         if self.cuda and self.config.ngpu > 1:
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
+            self.LD = nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
 
+        # samples used for testing the net
         val_iter = iter(self.data_loader.val_loader)
-        x_sample, c_org_sample = next(val_iter)
-        x_sample = x_sample.to(self.device)
-        c_sample_list = self.create_labels(c_org_sample, self.config.attrs)
-        c_sample_list.insert(0, c_org_sample)  # reconstruction
+        Ia_sample, a_sample = next(val_iter)
+        Ia_sample = Ia_sample.to(self.device)
+        b_samples = self.create_labels(a_sample, self.config.attrs)
+        b_samples.insert(0, a_sample)  # reconstruction
 
         self.g_lr = self.lr_scheduler_G.get_lr()[0]
         self.d_lr = self.lr_scheduler_D.get_lr()[0]
-        print(self.g_lr,self.d_lr)
+        self.ld_lr = self.lr_scheduler_LD.get_lr()[0]
+        print(self.g_lr,self.d_lr, self.ld_lr)
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
         for i in range(self.current_iteration, self.config.max_iters):
             #print(self.config.max_iters)
-            self.G.train()
-            self.D.train()
+
             # =================================================================================== #
             #                             1. Preprocess input data                                #
             # =================================================================================== #
 
             # fetch real images and labels
             try:
-                x_real, label_org = next(data_iter)
+                Ia, a_att = next(data_iter)
             except:
                 data_iter = iter(self.data_loader.train_loader)
-                x_real, label_org = next(data_iter)
+                Ia, a_att = next(data_iter)
 
             # generate target domain labels randomly
-            #TODO add gaussian noise
             #rand_idx = torch.randperm(label_org.size(0))
             #label_trg = label_org[rand_idx]
-            #print(label_org)
-            label_trg = label_org + torch.randn_like(label_org)*self.config.gaussian_stddev
-            #print(torch.randn_like(label_org))#*self.config.gaussian_stddev)
-            #print(label_trg)
+            b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
-            c_org = label_org.clone()
-            c_trg = label_trg.clone()
+            a_att_copy = a_att.clone()
+            b_att_copy = b_att.clone()
 
-            x_real = x_real.to(self.device)         # input images
-            c_org = c_org.to(self.device)           # original domain labels
-            c_trg = c_trg.to(self.device)           # target domain labels
-            label_org = label_org.to(self.device)   # labels for computing classification loss
-            label_trg = label_trg.to(self.device)   # labels for computing classification loss
+            Ia = Ia.to(self.device)         # input images
+            a_att_copy = a_att_copy.to(self.device)           # original domain labels
+            b_att_copy = b_att_copy.to(self.device)           # target domain labels
+            a_att = a_att.to(self.device)   # labels for computing classification loss
+            b_att = b_att.to(self.device)   # labels for computing classification loss
+
+            attr_diff = b_att_copy - a_att_copy
+            attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
 
             # =================================================================================== #
             #                             2. Train the discriminator                              #
             # =================================================================================== #
-            # compute loss with real images
-            out_src, out_cls = self.D(x_real)
-            d_loss_real = - torch.mean(out_src)
-            d_loss_cls = self.classification_loss(out_cls, label_org)
+            if self.config.use_image_disc:
+                self.G.eval()
+                self.D.train()
+                self.LD.eval()
+                # compute loss with real images : GAN and classification
+                out_disc, out_att = self.D(Ia)
+                d_loss_adv_real = - torch.mean(out_disc)
+                #classification loss
+                d_loss_att = self.classification_loss(out_att, a_att)
 
-            # compute loss with fake images
-            attr_diff = c_trg - c_org
-            attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
-            x_fake = self.G(x_real, attr_diff)
-            out_src, out_cls = self.D(x_fake.detach())
-            d_loss_fake = torch.mean(out_src)
+                # compute loss with fake images Ib_hat
+                Ib_hat,_ = self.G(Ia, attr_diff)
+                out_disc, out_att = self.D(Ib_hat.detach())
+                d_loss_adv_fake = torch.mean(out_disc)
 
-            # compute loss for gradient penalty
-            alpha = torch.rand(x_real.size(0), 1, 1, 1).to(self.device)
-            x_hat = (alpha * x_real.data + (1 - alpha) * x_fake.data).requires_grad_(True)
-            out_src, _ = self.D(x_hat)
-            d_loss_gp = self.gradient_penalty(out_src, x_hat)
+                # compute loss for gradient penalty for GAN
+                alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+                x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                out_disc, _ = self.D(x_hat)
+                d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
 
-            # backward and optimize
-            d_loss_adv = d_loss_real + d_loss_fake + self.config.lambda_gp * d_loss_gp
-            d_loss = d_loss_adv + self.config.lambda_att * d_loss_cls
-            #d_loss=d_loss_cls
-            self.optimizer_D.zero_grad()
-            d_loss.backward(retain_graph=True)
-            self.optimizer_D.step()
+                # backward and optimize
+                d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
+                d_loss = self.config.lambda_adv * d_loss_adv + self.config.lambda_d_att * d_loss_att
+                #d_loss=d_loss_cls
+                self.optimizer_D.zero_grad()
+                d_loss.backward(retain_graph=True)
+                self.optimizer_D.step()
 
-            # summarize
-            scalars = {}
-            scalars['D/loss'] = d_loss.item()
-            scalars['D/loss_adv'] = d_loss_adv.item()
-            scalars['D/loss_cls'] = d_loss_cls.item()
-            scalars['D/loss_real'] = d_loss_real.item()
-            scalars['D/loss_fake'] = d_loss_fake.item()
-            scalars['D/loss_gp'] = d_loss_gp.item()
+                # summarize
+                scalars = {}
+                scalars['D/loss'] = d_loss.item()
+                scalars['D/loss_adv'] = d_loss_adv.item()
+                scalars['D/loss_att'] = d_loss_att.item()
+                scalars['D/loss_real'] = d_loss_adv_real.item()
+                scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                scalars['D/loss_gp'] = d_loss_gp.item()
+
+            # =================================================================================== #
+            #                         3. Train the latent discriminator                           #
+            # =================================================================================== #
+            if self.config.use_latent_disc:
+                self.G.eval()
+                self.D.eval()
+                self.LD.train()
+                # compute disc loss on encoded image
+                _,z = self.G(Ia, a_att_copy - a_att_copy)
+                out_att = self.LD(z)
+                #classification loss
+                ld_loss = self.classification_loss(out_att, a_att)
+
+                # backward and optimize
+                self.optimizer_LD.zero_grad()
+                ld_loss.backward(retain_graph=True)
+                self.optimizer_LD.step()
+
+                # summarize
+                scalars = {}
+                scalars['LD/loss'] = ld_loss.item()
 
             # =================================================================================== #
             #                               3. Train the generator                                #
             # =================================================================================== #
             if (i + 1) % self.config.n_critic == 0: # and i>20000:  
-                # original-to-target domain
-                x_fake = self.G(x_real, attr_diff)
-                out_src, out_cls = self.D(x_fake)
-                g_loss_adv = - torch.mean(out_src)
-                g_loss_cls = self.classification_loss(out_cls, label_trg)
+                self.G.train()
+                self.D.eval()
+                self.LD.eval()
+                g_loss_adv = 0; g_loss_att = 0; g_loss_latent = 0
+                if self.config.use_image_disc:
+                    # original-to-target domain : Ib_hat -> GAN + classif
+                    Ib_hat,_ = self.G(Ia, attr_diff)
+                    out_disc, out_att = self.D(Ib_hat)
+                    g_loss_adv = - torch.mean(out_disc)
+                    g_loss_att = self.classification_loss(out_att, b_att)
 
-                # target-to-original domain
-                x_reconst = self.G(x_real, c_org - c_org)
-                g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
+                # target-to-original domain : Ia_hat -> reconstruction
+                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy)
+                g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+
+                if self.config.use_latent_disc:
+                    out_att = self.LD(z)
+                    g_loss_latent = self.classification_loss(out_att, b_att)
 
                 # backward and optimize
-                g_loss = g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
+                g_loss = self.config.lambda_adv * g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_att + self.config.lambda_g_latent * g_loss_latent
                 #g_loss = self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
                 self.optimizer_G.zero_grad()
                 g_loss.backward()
@@ -298,7 +347,15 @@ class STGANAgent(object):
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
-            # =================================================================================== #
+            # =================================================================================== #''
+            self.lr_scheduler_G.step()
+            self.lr_scheduler_D.step()
+            self.lr_scheduler_LD.step()
+            scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
+            scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
+            scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
+
+            # print summary on terminal and on tensorboard
             if self.current_iteration % self.config.summary_step == 0:
                 et = time.time() - start_time
                 et = str(datetime.timedelta(seconds=et))[:-7]
@@ -306,24 +363,20 @@ class STGANAgent(object):
                 for tag, value in scalars.items():
                     self.writer.add_scalar(tag, value, self.current_iteration)
 
+            # sample
             if (self.current_iteration-1) % self.config.sample_step == 0:
                 self.G.eval()
                 with torch.no_grad():
-                    self.compute_sample_grid(x_sample,c_sample_list,c_org_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
+                    self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
 
-
+            # save checkpoint
             if self.current_iteration % self.config.checkpoint_step == 0:
                 self.save_checkpoint()
 
-            self.lr_scheduler_G.step()
-            self.lr_scheduler_D.step()
-            scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-            scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
-            #print(self.g_lr,self.d_lr)
+
 
     def test_classif(self):
         self.load_checkpoint()
-        self.G.to(self.device)
         self.D.to(self.device)
 
         tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
@@ -338,7 +391,7 @@ class STGANAgent(object):
                 ax.append([all_figs[i][0].gca(),all_figs[i][1].gca()])
             for i, (x_real, c_org) in enumerate(tqdm_loader):
                 x_real = x_real.to(self.device)
-                out_src, out_cls = self.D(x_real)
+                out_disc, out_att = self.D(x_real)
                 for j in range(x_real.shape[0]):
                     for att in range(len(self.config.attrs)):
                         _imscatter(c_org[j][att].cpu(), np.random.random(),
@@ -347,12 +400,12 @@ class STGANAgent(object):
                                 zoom=0.1,
                                 ax=ax[att][0])
                         
-                        _imscatter(out_cls[j][att].cpu(), np.random.random(),
+                        _imscatter(out_att[j][att].cpu(), np.random.random(),
                                 image=x_real[j].cpu(),
                                 color='white',
                                 zoom=0.1,
                                 ax=ax[att][1])
-                        #print(out_cls[j][att])
+                        #print(out_att[j][att])
             for i in range(len(self.config.attrs)):
                 result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,"0"))
                 print(result_path)
