@@ -314,6 +314,18 @@ class STGANAgent(object):
                 self.G.train()
                 self.D.eval()
                 self.LD.eval()
+
+                # target-to-original domain : Ia_hat -> reconstruction
+                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy)
+                g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+                g_loss = self.config.lambda_g_rec * g_loss_rec
+
+                if self.config.use_latent_disc:
+                    out_att = self.LD(z)
+                    g_loss_latent = self.classification_loss(out_att, b_att)
+                    g_loss += self.config.lambda_g_latent * g_loss_latent
+                    scalars['G/loss_latent'] = g_loss_latent.item()
+
                 g_loss_adv = 0; g_loss_att = 0; g_loss_latent = 0
                 if self.config.use_image_disc:
                     # original-to-target domain : Ib_hat -> GAN + classif
@@ -321,27 +333,19 @@ class STGANAgent(object):
                     out_disc, out_att = self.D(Ib_hat)
                     g_loss_adv = - torch.mean(out_disc)
                     g_loss_att = self.classification_loss(out_att, b_att)
+                    g_loss += self.config.lambda_adv * g_loss_adv + self.config.lambda_g_att * g_loss_att
+                    scalars['G/loss_adv'] = g_loss_adv.item()
+                    scalars['G/loss_att'] = g_loss_att.item()
 
-                # target-to-original domain : Ia_hat -> reconstruction
-                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy)
-                g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
-
-                if self.config.use_latent_disc:
-                    out_att = self.LD(z)
-                    g_loss_latent = self.classification_loss(out_att, b_att)
 
                 # backward and optimize
-                g_loss = self.config.lambda_adv * g_loss_adv + self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_att + self.config.lambda_g_latent * g_loss_latent
-                #g_loss = self.config.lambda_g_rec * g_loss_rec + self.config.lambda_g_att * g_loss_cls
                 self.optimizer_G.zero_grad()
                 g_loss.backward()
                 self.optimizer_G.step()
 
                 # summarize
-                scalars['G/loss'] = g_loss.item()
-                scalars['G/loss_adv'] = g_loss_adv.item()
-                scalars['G/loss_cls'] = g_loss_cls.item()
                 scalars['G/loss_rec'] = g_loss_rec.item()
+                scalars['G/loss'] = g_loss.item()
 
             self.current_iteration += 1
 
