@@ -62,7 +62,7 @@ class MaterialDataset(data.Dataset):
 
     def __getitem__(self, index):
         filename, label = self.items[index]
-        image = Image.open(os.path.join(self.root, 'doge2', filename))
+        image = Image.open(os.path.join(self.root, '256px_dataset', filename))
         if self.transform is not None:
             image = self.transform(image)
         return image, torch.FloatTensor(label)
@@ -86,7 +86,7 @@ class MaterialDataLoader(object):
         if mode == 'train':
             val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
             val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
-            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
@@ -97,5 +97,5 @@ class MaterialDataLoader(object):
         else:
             test_transform = transforms.Compose(transform)
             test_set = MaterialDataset(root, 'test', selected_attrs, transform=test_transform)
-            self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))

@@ -61,7 +61,7 @@ class Generator(nn.Module):
         self.use_stu = use_stu
         self.attr_each_deconv = attr_each_deconv
 
-        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim)
+        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True)
         self.encoder = nn.ModuleList(enc_layers)
 
         self.stu = nn.ModuleList()

@@ -81,9 +81,9 @@ class STGANAgent(object):
             model.to(self.device)
             if self.config.mode == 'train':
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
-        load_one_model(self.G,self.optimizer_G,'G')
-        load_one_model(self.D,self.optimizer_D,'D')
-        load_one_model(self.LD,self.optimizer_LD,'LD')
+        load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
+        load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
+        load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
         # G_filename = 'G_{}.pth.tar'.format(self.config.checkpoint)
         # D_filename = 'D_{}.pth.tar'.format(self.config.checkpoint)
         # G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, G_filename),map_location=torch.device('cpu'))
@@ -149,7 +149,7 @@ class STGANAgent(object):
         x_fake_list = [x_sample]
         for c_trg_sample in c_sample_list:
             attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
-            attr_diff = attr_diff #* self.config.thres_int
+            attr_diff = attr_diff if self.config.use_attr_diff else c_trg_sample #* self.config.thres_int
             fake_image,_=self.G(x_sample, attr_diff.to(self.device))
             out_disc, out_att = self.D(fake_image.detach())
             #print(fake_image.shape) 
@@ -258,7 +258,7 @@ class STGANAgent(object):
                 d_loss_att = self.classification_loss(out_att, a_att)
 
                 # compute loss with fake images Ib_hat
-                Ib_hat,_ = self.G(Ia, attr_diff)
+                Ib_hat,_ = self.G(Ia, attr_diff if self.config.use_attr_diff else b_att_copy)
                 out_disc, out_att = self.D(Ib_hat.detach())
                 d_loss_adv_fake = torch.mean(out_disc)
 
@@ -293,10 +293,10 @@ class STGANAgent(object):
                 self.D.eval()
                 self.LD.train()
                 # compute disc loss on encoded image
-                _,z = self.G(Ia, a_att_copy - a_att_copy)
+                _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
                 out_att = self.LD(z)
                 #classification loss
-                ld_loss = self.classification_loss(out_att, a_att)
+                ld_loss = self.classification_loss(out_att, a_att)*0.01
 
                 # backward and optimize
                 self.optimizer_LD.zero_grad()
@@ -316,8 +316,11 @@ class STGANAgent(object):
                 self.LD.eval()
 
                 # target-to-original domain : Ia_hat -> reconstruction
-                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy)
-                g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                if self.config.use_l1_rec_loss:
+                    g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+                else:
+                    g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
                 g_loss = self.config.lambda_g_rec * g_loss_rec
 
                 if self.config.use_latent_disc:
@@ -326,10 +329,9 @@ class STGANAgent(object):
                     g_loss += self.config.lambda_g_latent * g_loss_latent
                     scalars['G/loss_latent'] = g_loss_latent.item()
 
-                g_loss_adv = 0; g_loss_att = 0; g_loss_latent = 0
                 if self.config.use_image_disc:
                     # original-to-target domain : Ib_hat -> GAN + classif
-                    Ib_hat,_ = self.G(Ia, attr_diff)
+                    Ib_hat,_ = self.G(Ia, attr_diff if self.config.use_attr_diff else b_att_copy)
                     out_disc, out_att = self.D(Ib_hat)
                     g_loss_adv = - torch.mean(out_disc)
                     g_loss_att = self.classification_loss(out_att, b_att)
