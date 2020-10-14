@@ -36,6 +36,7 @@ stu_kernel_size: 0
 use_stu: false
 one_more_conv: false
 attr_each_deconv: true
+use_attr_diff: false
 #other
 attrs: [glossy]
 checkpoint: ~
@@ -69,6 +70,7 @@ lambda_d_att: 1000
 lambda_g_att: 10000
 lambda_g_rec: 1
 lambda_g_latent: 0.0001
+lambda_ld: 0.01
 
 max_iters: 100000
 lr_decay_iters: 100000
@@ -83,8 +85,8 @@ checkpoint_step: 2500
 use_latent_disc: true
 use_image_disc: false
 use_classifier_generator: false
-use_attr_diff: false
 use_l1_rec_loss: false
+separate_C_D: false #TODO not implemented yet
 #separate image disc from classifier
 
 #improve: go only once through G, then update D, LD

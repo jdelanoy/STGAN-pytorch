@@ -296,7 +296,7 @@ class STGANAgent(object):
                 _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
                 out_att = self.LD(z)
                 #classification loss
-                ld_loss = self.classification_loss(out_att, a_att)*0.01
+                ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
 
                 # backward and optimize
                 self.optimizer_LD.zero_grad()
