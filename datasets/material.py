@@ -20,17 +20,14 @@ def make_dataset(root, mode, selected_attrs):
 
     lines = lines[1:]
     if mode == 'train':
-        lines = lines[:]  # train set contains 200599 images 985:
+        lines = lines[985:]  # train set contains 200599 images 985:
     if mode == 'val':
         lines = lines[:]  # val set contains 200 images :992
     if mode == 'test':
         # #only from havran
         # lines = lines[:985]  # test set contains 1800 images
-        # #only from one shape
-        # shape="bunny"
-        # lines=[line for line in lines if shape in line]
         #only from one shape/one env
-        shape=""
+        shape="havran"
         env=""
         lines=[line for line in lines if (shape in line and env in line)]
         # #all
@@ -38,7 +35,7 @@ def make_dataset(root, mode, selected_attrs):
         #take 100 random images
         random.shuffle(lines)
         lines=lines[:200]
-    print(len(lines))
+    #print(len(lines))
     items = []
     for i, line in enumerate(lines):
         split = line.split()
