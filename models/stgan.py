@@ -75,13 +75,13 @@ class Generator(nn.Module):
             dec_out = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i in STGAN
             dec_in = min(max_dim,conv_dim * 2 ** (i+1)) #NOTE ou i+1 in STGAN
             enc_size = min(max_dim,conv_dim * 2 ** (i))
-            #print(i,dec_out,dec_in,enc_size)
 
             if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #first: concatenate attribute
-            elif i >= self.n_layers - 1 - self.shortcut_layers: # skip connection
+            if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
                 dec_in = dec_in + enc_size
                 if use_stu:
                     self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
+            print(i,dec_out,dec_in,enc_size)
 
             if i > 0:
                 self.decoder.append(nn.Sequential(
