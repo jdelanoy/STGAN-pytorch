@@ -95,7 +95,7 @@ class STGANAgent(object):
         # D_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, D_filename),map_location=torch.device('cpu'))
         # G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
         # D_to_load = {k.replace('module.', ''): v for k, v in D_checkpoint['state_dict'].items()}
-        # self.current_iteration = self.config.checkpoint
+        self.current_iteration = self.config.checkpoint
         # self.G.load_state_dict(G_to_load)
         # self.D.load_state_dict(D_to_load)
         # self.G.to(self.device)
@@ -288,7 +288,7 @@ class STGANAgent(object):
                 scalars['D/loss_att'] = d_loss_att.item()
                 scalars['D/loss_real'] = d_loss_adv_real.item()
                 scalars['D/loss_fake'] = d_loss_adv_fake.item()
-                scalars['D/loss_gp'] = d_loss_gp.item()
+                scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
             # =================================================================================== #
             #                         3. Train the latent discriminator                           #

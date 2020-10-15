@@ -42,7 +42,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
     out_channels = conv_dim
     for i in range(n_layers):
         enc_layer=[nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias)]
-        if i > 0: #NOTE remove if in AttGAN
+        if i >= 0: #NOTE remove if in AttGAN
             enc_layer.append(norm(out_channels, affine=True, track_running_stats=True))
         enc_layer.append(nn.LeakyReLU(0.2, inplace=True))
         if dropout > 0:
@@ -61,7 +61,7 @@ class Generator(nn.Module):
         self.use_stu = use_stu
         self.attr_each_deconv = attr_each_deconv
 
-        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True)
+        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=False) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
         self.stu = nn.ModuleList()
@@ -72,8 +72,8 @@ class Generator(nn.Module):
 #in_dim, out_dim, in_state_dim,
         self.decoder = nn.ModuleList()
         for i in reversed(range(self.n_layers)):
-            dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
-            dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
+            dec_out = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i in STGAN
+            dec_in = min(max_dim,conv_dim * 2 ** (i+1)) #NOTE ou i+1 in STGAN
             enc_size = min(max_dim,conv_dim * 2 ** (i))
 
             if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #first: concatenate attribute
