@@ -47,7 +47,7 @@ checkpoint: ~
 # batch_size: 32
 # beta1: 0.5
 # beta2: 0.999
-# g_lr: 0.00005
+# g_lr: 0.0002
 # d_lr: 0.00002
 # ld_lr: 0
 # n_critic: 5

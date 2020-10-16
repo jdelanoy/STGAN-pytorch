@@ -89,20 +89,8 @@ class STGANAgent(object):
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
         load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
-        # G_filename = 'G_{}.pth.tar'.format(self.config.checkpoint)
-        # D_filename = 'D_{}.pth.tar'.format(self.config.checkpoint)
-        # G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, G_filename),map_location=torch.device('cpu'))
-        # D_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, D_filename),map_location=torch.device('cpu'))
-        # G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
-        # D_to_load = {k.replace('module.', ''): v for k, v in D_checkpoint['state_dict'].items()}
+
         self.current_iteration = self.config.checkpoint
-        # self.G.load_state_dict(G_to_load)
-        # self.D.load_state_dict(D_to_load)
-        # self.G.to(self.device)
-        # self.D.to(self.device)
-        # if self.config.mode == 'train':
-        #     self.optimizer_G.load_state_dict(G_checkpoint['optimizer'])
-        #     self.optimizer_D.load_state_dict(D_checkpoint['optimizer'])
 
     def denorm(self, x):
         #get from [-1,1] to [0,1]
@@ -110,13 +98,7 @@ class STGANAgent(object):
         return out.clamp_(0, 1)
 
     def create_labels(self, c_org, selected_attrs=None):
-        """Generate target domain labels for debugging and testing."""
-        #TODO add gaussian noise 
-        # # get hair color indices
-        # hair_color_indices = []
-        # for i, attr_name in enumerate(selected_attrs):
-        #     if attr_name in ['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Gray_Hair']:
-        #         hair_color_indices.append(i)
+        """Generate target domain labels for debugging and testing: linearly sample attribute"""
 
         c_trg_list = []
         for i in range(len(selected_attrs)):
@@ -124,7 +106,7 @@ class STGANAgent(object):
             #alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
             for alpha in alphas:
                 c_trg = c_org.clone()
-                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) #c_trg[:, i] + torch.randn_like(c_trg[:, i])*self.config.gaussian_stddev   A
+                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
                 c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
 
@@ -157,8 +139,8 @@ class STGANAgent(object):
             attr_diff = attr_diff if self.config.use_attr_diff else c_trg_sample #* self.config.thres_int
             fake_image,_=self.G(x_sample, attr_diff.to(self.device))
             out_disc, out_att = self.D(fake_image.detach())
-            #print(fake_image.shape) 
-            #print(attr_diff.shape)
+
+            #write target and predicted score
             for im in range(fake_image.shape[0]):
                 #image=(fake_image[im].cpu().detach().numpy().transpose((1,2,0))*127.5+127.5).astype(np.uint8)
                 image=np.zeros((128,128,3), np.uint8)
@@ -167,6 +149,7 @@ class STGANAgent(object):
                     cv2.putText(image, "%.2f"%(out_att[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                 fake_image[im]=torch.from_numpy(image) #transforms.ToTensor()(image)*(2)-1
+
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
         if writer:
@@ -205,7 +188,7 @@ class STGANAgent(object):
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
             self.LD = nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
 
-        # samples used for testing the net
+        # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
         Ia_sample, a_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
@@ -215,11 +198,9 @@ class STGANAgent(object):
         self.g_lr = self.lr_scheduler_G.get_lr()[0]
         self.d_lr = self.lr_scheduler_D.get_lr()[0]
         self.ld_lr = self.lr_scheduler_LD.get_lr()[0]
-        print(self.g_lr,self.d_lr, self.ld_lr)
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
         for i in range(self.current_iteration, self.config.max_iters):
-            #print(self.config.max_iters)
 
             # =================================================================================== #
             #                             1. Preprocess input data                                #
@@ -233,8 +214,6 @@ class STGANAgent(object):
                 Ia, a_att = next(data_iter)
 
             # generate target domain labels randomly
-            #rand_idx = torch.randperm(label_org.size(0))
-            #label_trg = label_org[rand_idx]
             b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
             a_att_copy = a_att.clone()
@@ -247,48 +226,54 @@ class STGANAgent(object):
             b_att = b_att.to(self.device)   # labels for computing classification loss
 
             attr_diff = b_att_copy - a_att_copy
-            attr_diff = attr_diff #* torch.rand_like(attr_diff) * (2 * self.config.thres_int) #TODO why random?
+            attr_diff = attr_diff if self.config.use_attr_diff else b_att_copy
 
             # =================================================================================== #
             #                             2. Train the discriminator                              #
             # =================================================================================== #
-            if self.config.use_image_disc:
+            if self.config.use_image_disc or self.config.use_image_classifier:
                 self.G.eval()
                 self.D.train()
                 self.LD.eval()
-                # compute loss with real images : GAN and classification
-                out_disc, out_att = self.D(Ia)
-                d_loss_adv_real = - torch.mean(out_disc)
-                #classification loss
-                d_loss_att = self.classification_loss(out_att, a_att)
 
-                # compute loss with fake images Ib_hat
-                Ib_hat,_ = self.G(Ia, attr_diff if self.config.use_attr_diff else b_att_copy)
-                out_disc, out_att = self.D(Ib_hat.detach())
-                d_loss_adv_fake = torch.mean(out_disc)
+                # input is the real image Ia
+                out_disc_real, out_att_real = self.D(Ia)
 
-                # compute loss for gradient penalty for GAN
-                alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-                x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
-                out_disc, _ = self.D(x_hat)
-                d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
+                d_loss = 0
+                if self.config.use_image_disc:
+                    # fake image Ib_hat
+                    Ib_hat,_ = self.G(Ia, attr_diff)
+                    out_disc_fake, _ = self.D(Ib_hat.detach())
+                    #adversarial losses
+                    d_loss_adv_real = - torch.mean(out_disc_real)
+                    d_loss_adv_fake = torch.mean(out_disc_fake)
+                    # compute loss for gradient penalty
+                    alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+                    x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                    out_disc, _ = self.D(x_hat)
+                    d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
+                    #full GAN loss
+                    d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
+                    d_loss += self.config.lambda_adv * d_loss_adv
+                    scalars['D/loss_adv'] = d_loss_adv.item()
+                    scalars['D/loss_real'] = d_loss_adv_real.item()
+                    scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                    scalars['D/loss_gp'] = d_loss_adv_gp.item()
+
+                if self.config.use_image_classifier:
+                    d_loss_att = self.classification_loss(out_att_real, a_att)
+                    d_loss += self.config.lambda_d_att * d_loss_att
+                    scalars['D/loss_att'] = d_loss_att.item()
+
 
                 # backward and optimize
-                d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
-                d_loss = self.config.lambda_adv * d_loss_adv + self.config.lambda_d_att * d_loss_att
-                #d_loss=d_loss_cls
                 self.optimizer_D.zero_grad()
                 d_loss.backward(retain_graph=True)
                 self.optimizer_D.step()
-
                 # summarize
                 scalars = {}
                 scalars['D/loss'] = d_loss.item()
-                scalars['D/loss_adv'] = d_loss_adv.item()
-                scalars['D/loss_att'] = d_loss_att.item()
-                scalars['D/loss_real'] = d_loss_adv_real.item()
-                scalars['D/loss_fake'] = d_loss_adv_fake.item()
-                scalars['D/loss_gp'] = d_loss_adv_gp.item()
+
 
             # =================================================================================== #
             #                         3. Train the latent discriminator                           #
@@ -300,6 +285,7 @@ class STGANAgent(object):
                 # compute disc loss on encoded image
                 _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
                 out_att = self.LD(z)
+
                 #classification loss
                 ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
 
@@ -334,15 +320,18 @@ class STGANAgent(object):
                     g_loss += self.config.lambda_g_latent * g_loss_latent
                     scalars['G/loss_latent'] = g_loss_latent.item()
 
-                if self.config.use_image_disc:
+                if self.config.use_image_disc or self.config.use_image_classifier:
                     # original-to-target domain : Ib_hat -> GAN + classif
-                    Ib_hat,_ = self.G(Ia, attr_diff if self.config.use_attr_diff else b_att_copy)
+                    Ib_hat,_ = self.G(Ia, attr_diff)
                     out_disc, out_att = self.D(Ib_hat)
-                    g_loss_adv = - torch.mean(out_disc)
-                    g_loss_att = self.classification_loss(out_att, b_att)
-                    g_loss += self.config.lambda_adv * g_loss_adv + self.config.lambda_g_att * g_loss_att
-                    scalars['G/loss_adv'] = g_loss_adv.item()
-                    scalars['G/loss_att'] = g_loss_att.item()
+                    if self.config.use_image_disc:                    
+                        g_loss_adv = - torch.mean(out_disc)
+                        g_loss += self.config.lambda_g_att * g_loss_att
+                        scalars['G/loss_adv'] = g_loss_adv.item()
+                    if self.config.use_image_classifier:
+                        g_loss_att = self.classification_loss(out_att, b_att)
+                        g_loss += self.config.lambda_g_att * g_loss_att
+                        scalars['G/loss_att'] = g_loss_att.item()
 
 
                 # backward and optimize
