@@ -4,7 +4,7 @@ import logging
 from logging import Formatter
 from logging.handlers import RotatingFileHandler
 from easydict import EasyDict
-
+import shutil
 from utils.misc import create_dirs
 
 
@@ -59,7 +59,7 @@ def process_config(yaml_file):
     config.log_dir = os.path.join('experiments', config.exp_name, 'logs/')
     config.result_dir = os.path.join('experiments', config.exp_name, 'results/')
     create_dirs([config.summary_dir, config.checkpoint_dir, config.sample_dir, config.log_dir, config.result_dir])
-
+    shutil.copy2(yaml_file,os.path.join('experiments', config.exp_name))
     # setup logging in the project
     setup_logging(config.log_dir)
 
