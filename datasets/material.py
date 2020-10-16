@@ -18,16 +18,18 @@ def make_dataset(root, mode, selected_attrs):
         attr2idx[attr_name] = i
         idx2attr[i] = attr_name
 
+    random.seed(10)
     lines = lines[1:]
     if mode == 'train':
         lines = lines[985:]  # train set contains 200599 images 985:
     if mode == 'val':
+        random.shuffle(lines)
         lines = lines[:]  # val set contains 200 images :992
     if mode == 'test':
         # #only from havran
         # lines = lines[:985]  # test set contains 1800 images
         #only from one shape/one env
-        shape="havran"
+        shape=""
         env=""
         lines=[line for line in lines if (shape in line and env in line)]
         # #all
@@ -83,7 +85,7 @@ class MaterialDataLoader(object):
         if mode == 'train':
             val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
             val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
-            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
+            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
@@ -94,5 +96,5 @@ class MaterialDataLoader(object):
         else:
             test_transform = transforms.Compose(transform)
             test_set = MaterialDataset(root, 'test', selected_attrs, transform=test_transform)
-            self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=4)
+            self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
