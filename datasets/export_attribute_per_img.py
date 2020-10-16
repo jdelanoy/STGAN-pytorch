@@ -15,6 +15,20 @@ def parse_args(required=True):
                       help='Path to the input attribute scores. (required)')
   return parser.parse_args()
 
+def add_image_to_dataset(im,all_scores,outfile):
+    im_name=os.path.split(im)[-1]
+    #get the name of the material + write
+    name = im_name.split('@')[0].replace("-","")
+
+    if(name in all_scores['material_name']):
+        outfile.write(im_name+"\t")
+        #get the scores + write
+        index=all_scores['material_name'].index(name)
+        for att in attributes:
+            outfile.write(str(float(all_scores[att][index])))
+            outfile.write('\t')
+        outfile.write('\n')
+
 def main():
     """Main function."""
     args = parse_args(False)
@@ -29,40 +43,15 @@ def main():
     outfile.write("\n")
     #get the list of images
     images = np.sort(glob.glob(args.image_path+"/256px_dataset/*"))
+    #put havran first (test_set)
     print(len(images))
     images_havran=[im for im in images if "havran" in im]
     print (len(images_havran))
     #for each image
     for im in images_havran:
-        im_name=os.path.split(im)[-1]
-        #get the name of the material + write
-        name = im_name.split('@')[0].replace("-","")
-
-        if(name in all_scores['material_name']):
-            outfile.write(im_name+"\t")
-            #get the scores + write
-            #print(name)
-            #print(all_scores['material_name'])
-            index=all_scores['material_name'].index(name)
-            #print (name,index)
-            for att in attributes:
-                outfile.write(str(float(all_scores[att][index])))
-                outfile.write('\t')
-            outfile.write('\n')
+        add_image_to_dataset(im,all_scores,outfile)
     for im in images:
         if "havran" in im: continue
-        im_name=os.path.split(im)[-1]
-        #get the name of the material + write
-        name = im_name.split('@')[0].replace("-","")
-        if(name in all_scores['material_name']):
-            outfile.write(im_name+"\t")
-            #get the scores + write
-            #print(name)
-            #print(all_scores['material_name'])
-            index=all_scores['material_name'].index(name)
-            #print (name,index)
-            for att in attributes:
-                outfile.write(str(float(all_scores[att][index])))
-                outfile.write('\t')
-            outfile.write('\n')
+        add_image_to_dataset(im,all_scores,outfile)
+
 main()
