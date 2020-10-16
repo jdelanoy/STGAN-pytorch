@@ -5,7 +5,7 @@ from torch.utils import data
 from torchvision import transforms
 from PIL import Image
 import random
-
+import numpy as np
 
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
@@ -18,12 +18,12 @@ def make_dataset(root, mode, selected_attrs):
         attr2idx[attr_name] = i
         idx2attr[i] = attr_name
 
-    random.seed(10)
+    np.random.seed(10)
     lines = lines[1:]
     if mode == 'train':
         lines = lines[985:]  # train set contains 200599 images 985:
     if mode == 'val':
-        random.shuffle(lines)
+        np.random.shuffle(lines)
         lines = lines[:]  # val set contains 200 images :992
     if mode == 'test':
         # #only from havran
@@ -35,7 +35,7 @@ def make_dataset(root, mode, selected_attrs):
         # #all
 
         #take 100 random images
-        random.shuffle(lines)
+        np.random.shuffle(lines)
         lines=lines[:200]
     #print(len(lines))
     items = []
