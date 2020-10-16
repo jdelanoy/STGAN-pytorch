@@ -1,5 +1,5 @@
 # meta
-exp_name: faderNet_base #_tanh_noGAN_classif_first_2 #_classif_tanh
+exp_name: faderNet
 mode: train
 cuda: true 
 ngpu: 1
@@ -13,18 +13,20 @@ crop_size: 240
 image_size: 128
 gaussian_stddev: 0.5
 
-# #### model (AttGAN)
+#### model (STGAN)
 # g_conv_dim: 64
 # d_conv_dim: 64
 # d_fc_dim: 1024
 # max_conv_dim: 1024
 # g_layers: 5
 # d_layers: 5
-# shortcut_layers: 3
+# shortcut_layers: 3 #1 for AttGAN
 # stu_kernel_size: 3
-# use_stu: true
+# use_stu: true #false for AttGAN
 # one_more_conv: true
-# #### model (FaderNet)
+# attr_each_deconv: false
+# use_attr_diff: true #false for AttGAN
+#### model (FaderNet)
 g_conv_dim: 32
 d_conv_dim: 32
 d_fc_dim: 512
@@ -32,7 +34,7 @@ max_conv_dim: 512
 g_layers: 6
 d_layers: 7
 shortcut_layers: 0
-stu_kernel_size: 0
+stu_kernel_size: 3
 use_stu: false
 one_more_conv: false
 attr_each_deconv: true
@@ -45,35 +47,35 @@ checkpoint: ~
 # batch_size: 32
 # beta1: 0.5
 # beta2: 0.999
-# g_lr: 0.0002
-# d_lr: 0.00005
+# g_lr: 0.00005
+# d_lr: 0.00002
+# ld_lr: 0
 # n_critic: 5
-# thres_int: 0.5
 # lambda_adv : 1
 # lambda_gp: 10
 # lambda_d_att: 1000
 # lambda_g_att: 10000
 # lambda_g_rec: 100
 # lambda_g_latent: 0
+# lambda_ld: 0
 # training (FaderNet)
 batch_size: 32
 beta1: 0.9
 beta2: 0.999
 g_lr: 0.0002
-d_lr: 0.00005
+d_lr: 0
 ld_lr: 0.00002
 n_critic: 1
-thres_int: 0.5
-lambda_adv : 1
-lambda_gp: 10
-lambda_d_att: 1000
-lambda_g_att: 10000
+lambda_adv : 0
+lambda_gp: 0
+lambda_d_att: 0
+lambda_g_att: 0
 lambda_g_rec: 1
 lambda_g_latent: 0.0001
 lambda_ld: 0.01
 
 max_iters: 100000
-lr_decay_iters: 100000
+lr_decay_iters: 150000
 
 # steps:
 #33 iter per batch
@@ -82,11 +84,14 @@ sample_step: 500
 checkpoint_step: 2500
 
 #which part activate
+#true for FaderNet
 use_latent_disc: true
+#true for STGAN
 use_image_disc: false
 use_classifier_generator: false
 use_l1_rec_loss: false
-separate_C_D: false #TODO not implemented yet
-#separate image disc from classifier
+
+#TODO not implemented yet
+separate_C_D: false 
 
 #improve: go only once through G, then update D, LD

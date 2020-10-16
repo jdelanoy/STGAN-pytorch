@@ -330,7 +330,7 @@ class STGANAgent(object):
 
                 if self.config.use_latent_disc:
                     out_att = self.LD(z)
-                    g_loss_latent = self.classification_loss(out_att, b_att)
+                    g_loss_latent = -self.classification_loss(out_att, a_att)
                     g_loss += self.config.lambda_g_latent * g_loss_latent
                     scalars['G/loss_latent'] = g_loss_latent.item()
 
