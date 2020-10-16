@@ -42,7 +42,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
     out_channels = conv_dim
     for i in range(n_layers):
         enc_layer=[nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias)]
-        if i > 0: #NOTE remove if in AttGAN
+        if i > 0: #NOTE >= in AttGAN
             enc_layer.append(norm(out_channels, affine=True, track_running_stats=True))
         enc_layer.append(nn.LeakyReLU(0.2, inplace=True))
         if dropout > 0:
@@ -61,27 +61,25 @@ class Generator(nn.Module):
         self.use_stu = use_stu
         self.attr_each_deconv = attr_each_deconv
 
+        ##### build encoder
         enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
         self.stu = nn.ModuleList()
-        # if use_stu:
-        #     self.stu = nn.ModuleList()
-        #     for i in reversed(range(self.n_layers - 1 - self.shortcut_layers, self.n_layers - 1)):
-        #         self.stu.append(ConvGRUCell(self.n_attrs, min(max_dim,conv_dim * 2 ** i), min(max_dim,conv_dim * 2 ** i),min(max_dim,conv_dim * 2 ** (i+1)), stu_kernel_size))
-#in_dim, out_dim, in_state_dim,
+        ##### build decoder
         self.decoder = nn.ModuleList()
         for i in reversed(range(self.n_layers)):
+            #size if inputs/outputs
             dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
             dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
             enc_size = min(max_dim,conv_dim * 2 ** (i))
 
-            if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #first: concatenate attribute
+            if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
             if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
                 dec_in = dec_in + enc_size
                 if use_stu:
                     self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
-            print(i,dec_out,dec_in,enc_size)
+            #print(i,dec_out,dec_in,enc_size)
 
             if i > 0:
                 self.decoder.append(nn.Sequential(
@@ -90,7 +88,7 @@ class Generator(nn.Module):
                     nn.BatchNorm2d(dec_out),
                     nn.ReLU(inplace=True)
                 ))
-            else:
+            else: #last layer
                 if one_more_conv:
                     self.decoder.append(nn.Sequential(
                         nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
@@ -120,10 +118,12 @@ class Generator(nn.Module):
 
         for i, dec_layer in enumerate(self.decoder):
             if self.attr_each_deconv or i == 0:
+                #concatenate attribute
                 size = out.size(2)
                 attr = a.expand((out.size(0), self.n_attrs, size, size))
                 out = torch.cat([out, attr], dim=1)
             if 0 < i <= self.shortcut_layers:
+                #do shortcut connection
                 if self.use_stu:
                     stu_out, stu_state = self.stu[i-1](encoded[-(i+1)], stu_state, a)
                     out = torch.cat([out, stu_out], dim=1)
@@ -131,19 +131,7 @@ class Generator(nn.Module):
                     out = torch.cat([out, encoded[-(i+1)]], dim=1)
             out = dec_layer(out)
 
-        # # propagate shortcut layers
-        # for i in range(1, self.shortcut_layers + 1):
-        #     if self.use_stu:
-        #         stu_out, stu_state = self.stu[i-1](encoded[-(i+1)], stu_state, a)
-        #         out = torch.cat([out, stu_out], dim=1)
-        #         out = self.decoder[i](out)
-        #     else:
-        #         out = torch.cat([out, encoded[-(i+1)]], dim=1)
-        #         out = self.decoder[i](out)
 
-        # # propagate non-shortcut layers
-        # for i in range(self.shortcut_layers + 1, self.n_layers):
-        #     out = self.decoder[i](out)
 
         return out,encoded[-self.shortcut_layers-1]
 
