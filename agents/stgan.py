@@ -200,178 +200,184 @@ class STGANAgent(object):
         self.ld_lr = self.lr_scheduler_LD.get_lr()[0]
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
-        for i in range(self.current_iteration, self.config.max_iters):
-
-            # =================================================================================== #
-            #                             1. Preprocess input data                                #
-            # =================================================================================== #
-
-            # fetch real images and labels
-            try:
-                Ia, a_att = next(data_iter)
-            except:
-                data_iter = iter(self.data_loader.train_loader)
-                Ia, a_att = next(data_iter)
-
-            # generate target domain labels randomly
-            b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
-
-            a_att_copy = a_att.clone()
-            b_att_copy = b_att.clone()
-
-            Ia = Ia.to(self.device)         # input images
-            a_att_copy = a_att_copy.to(self.device)           # original domain labels
-            b_att_copy = b_att_copy.to(self.device)           # target domain labels
-            a_att = a_att.to(self.device)   # labels for computing classification loss
-            b_att = b_att.to(self.device)   # labels for computing classification loss
-
-            attr_diff = b_att_copy - a_att_copy
-            attr_diff = attr_diff if self.config.use_attr_diff else b_att_copy
-
-            # =================================================================================== #
-            #                             2. Train the discriminator                              #
-            # =================================================================================== #
-            if self.config.use_image_disc or self.config.use_image_classifier:
-                self.G.eval()
-                self.D.train()
-                self.LD.eval()
-
-                # input is the real image Ia
-                out_disc_real, out_att_real = self.D(Ia)
-
-                d_loss = 0
-                if self.config.use_image_disc:
-                    # fake image Ib_hat
-                    Ib_hat,_ = self.G(Ia, attr_diff)
-                    out_disc_fake, _ = self.D(Ib_hat.detach())
-                    #adversarial losses
-                    d_loss_adv_real = - torch.mean(out_disc_real)
-                    d_loss_adv_fake = torch.mean(out_disc_fake)
-                    # compute loss for gradient penalty
-                    alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-                    x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
-                    out_disc, _ = self.D(x_hat)
-                    d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
-                    #full GAN loss
-                    d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
-                    d_loss += self.config.lambda_adv * d_loss_adv
-                    scalars['D/loss_adv'] = d_loss_adv.item()
-                    scalars['D/loss_real'] = d_loss_adv_real.item()
-                    scalars['D/loss_fake'] = d_loss_adv_fake.item()
-                    scalars['D/loss_gp'] = d_loss_adv_gp.item()
-
-                if self.config.use_image_classifier:
-                    d_loss_att = self.classification_loss(out_att_real, a_att)
-                    d_loss += self.config.lambda_d_att * d_loss_att
-                    scalars['D/loss_att'] = d_loss_att.item()
 
 
-                # backward and optimize
-                self.optimizer_D.zero_grad()
-                d_loss.backward(retain_graph=True)
-                self.optimizer_D.step()
-                # summarize
-                scalars = {}
-                scalars['D/loss'] = d_loss.item()
+        start_batch = self.current_iteration // self.data_loader.train_iterations
+        print(self.current_iteration,self.data_loader.train_iterations,start_batch)
 
+        for batch in range(start_batch, self.config.max_epoch):
+            for it in range(self.data_loader.train_iterations):
 
-            # =================================================================================== #
-            #                         3. Train the latent discriminator                           #
-            # =================================================================================== #
-            if self.config.use_latent_disc:
-                self.G.eval()
-                self.D.eval()
-                self.LD.train()
-                # compute disc loss on encoded image
-                _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                out_att = self.LD(z)
+                # =================================================================================== #
+                #                             1. Preprocess input data                                #
+                # =================================================================================== #
 
-                #classification loss
-                ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                # fetch real images and labels
+                try:
+                    Ia, a_att = next(data_iter)
+                except:
+                    data_iter = iter(self.data_loader.train_loader)
+                    Ia, a_att = next(data_iter)
 
-                # backward and optimize
-                self.optimizer_LD.zero_grad()
-                ld_loss.backward(retain_graph=True)
-                self.optimizer_LD.step()
+                # generate target domain labels randomly
+                b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
-                # summarize
-                scalars = {}
-                scalars['LD/loss'] = ld_loss.item()
+                a_att_copy = a_att.clone()
+                b_att_copy = b_att.clone()
 
-            # =================================================================================== #
-            #                               3. Train the generator                                #
-            # =================================================================================== #
-            if (i + 1) % self.config.n_critic == 0: # and i>20000:  
-                self.G.train()
-                self.D.eval()
-                self.LD.eval()
+                Ia = Ia.to(self.device)         # input images
+                a_att_copy = a_att_copy.to(self.device)           # original domain labels
+                b_att_copy = b_att_copy.to(self.device)           # target domain labels
+                a_att = a_att.to(self.device)   # labels for computing classification loss
+                b_att = b_att.to(self.device)   # labels for computing classification loss
 
-                # target-to-original domain : Ia_hat -> reconstruction
-                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                if self.config.use_l1_rec_loss:
-                    g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
-                else:
-                    g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
-                g_loss = self.config.lambda_g_rec * g_loss_rec
+                attr_diff = b_att_copy - a_att_copy
+                attr_diff = attr_diff if self.config.use_attr_diff else b_att_copy
 
-                if self.config.use_latent_disc:
-                    out_att = self.LD(z)
-                    g_loss_latent = -self.classification_loss(out_att, a_att)
-                    g_loss += self.config.lambda_g_latent * g_loss_latent
-                    scalars['G/loss_latent'] = g_loss_latent.item()
-
+                # =================================================================================== #
+                #                             2. Train the discriminator                              #
+                # =================================================================================== #
                 if self.config.use_image_disc or self.config.use_image_classifier:
-                    # original-to-target domain : Ib_hat -> GAN + classif
-                    Ib_hat,_ = self.G(Ia, attr_diff)
-                    out_disc, out_att = self.D(Ib_hat)
-                    if self.config.use_image_disc:                    
-                        g_loss_adv = - torch.mean(out_disc)
-                        g_loss += self.config.lambda_g_att * g_loss_att
-                        scalars['G/loss_adv'] = g_loss_adv.item()
+                    self.G.eval()
+                    self.D.train()
+                    self.LD.eval()
+
+                    # input is the real image Ia
+                    out_disc_real, out_att_real = self.D(Ia)
+
+                    d_loss = 0
+                    if self.config.use_image_disc:
+                        # fake image Ib_hat
+                        Ib_hat,_ = self.G(Ia, attr_diff)
+                        out_disc_fake, _ = self.D(Ib_hat.detach())
+                        #adversarial losses
+                        d_loss_adv_real = - torch.mean(out_disc_real)
+                        d_loss_adv_fake = torch.mean(out_disc_fake)
+                        # compute loss for gradient penalty
+                        alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+                        x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                        out_disc, _ = self.D(x_hat)
+                        d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
+                        #full GAN loss
+                        d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
+                        d_loss += self.config.lambda_adv * d_loss_adv
+                        scalars['D/loss_adv'] = d_loss_adv.item()
+                        scalars['D/loss_real'] = d_loss_adv_real.item()
+                        scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                        scalars['D/loss_gp'] = d_loss_adv_gp.item()
+
                     if self.config.use_image_classifier:
-                        g_loss_att = self.classification_loss(out_att, b_att)
-                        g_loss += self.config.lambda_g_att * g_loss_att
-                        scalars['G/loss_att'] = g_loss_att.item()
+                        d_loss_att = self.classification_loss(out_att_real, a_att)
+                        d_loss += self.config.lambda_d_att * d_loss_att
+                        scalars['D/loss_att'] = d_loss_att.item()
 
 
-                # backward and optimize
-                self.optimizer_G.zero_grad()
-                g_loss.backward()
-                self.optimizer_G.step()
+                    # backward and optimize
+                    self.optimizer_D.zero_grad()
+                    d_loss.backward(retain_graph=True)
+                    self.optimizer_D.step()
+                    # summarize
+                    scalars = {}
+                    scalars['D/loss'] = d_loss.item()
 
-                # summarize
-                scalars['G/loss_rec'] = g_loss_rec.item()
-                scalars['G/loss'] = g_loss.item()
 
-            self.current_iteration += 1
+                # =================================================================================== #
+                #                         3. Train the latent discriminator                           #
+                # =================================================================================== #
+                if self.config.use_latent_disc:
+                    self.G.eval()
+                    self.D.eval()
+                    self.LD.train()
+                    # compute disc loss on encoded image
+                    _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                    out_att = self.LD(z)
 
-            # =================================================================================== #
-            #                                 4. Miscellaneous                                    #
-            # =================================================================================== #''
-            self.lr_scheduler_G.step()
-            self.lr_scheduler_D.step()
-            self.lr_scheduler_LD.step()
-            scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-            scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
-            scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
+                    #classification loss
+                    ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
 
-            # print summary on terminal and on tensorboard
-            if self.current_iteration % self.config.summary_step == 0:
-                et = time.time() - start_time
-                et = str(datetime.timedelta(seconds=et))[:-7]
-                print('Elapsed [{}], Iteration [{}/{}]'.format(et, self.current_iteration, self.config.max_iters))
-                for tag, value in scalars.items():
-                    self.writer.add_scalar(tag, value, self.current_iteration)
+                    # backward and optimize
+                    self.optimizer_LD.zero_grad()
+                    ld_loss.backward(retain_graph=True)
+                    self.optimizer_LD.step()
 
-            # sample
-            if (self.current_iteration-1) % self.config.sample_step == 0:
-                self.G.eval()
-                with torch.no_grad():
-                    self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
+                    # summarize
+                    scalars = {}
+                    scalars['LD/loss'] = ld_loss.item()
 
-            # save checkpoint
-            if self.current_iteration % self.config.checkpoint_step == 0:
-                self.save_checkpoint()
+                # =================================================================================== #
+                #                               3. Train the generator                                #
+                # =================================================================================== #
+                if (self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
+                    self.G.train()
+                    self.D.eval()
+                    self.LD.eval()
+
+                    # target-to-original domain : Ia_hat -> reconstruction
+                    Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                    if self.config.use_l1_rec_loss:
+                        g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+                    else:
+                        g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
+                    g_loss = self.config.lambda_g_rec * g_loss_rec
+
+                    if self.config.use_latent_disc:
+                        out_att = self.LD(z)
+                        g_loss_latent = -self.classification_loss(out_att, a_att)
+                        g_loss += self.config.lambda_g_latent * g_loss_latent
+                        scalars['G/loss_latent'] = g_loss_latent.item()
+
+                    if self.config.use_image_disc or self.config.use_image_classifier:
+                        # original-to-target domain : Ib_hat -> GAN + classif
+                        Ib_hat,_ = self.G(Ia, attr_diff)
+                        out_disc, out_att = self.D(Ib_hat)
+                        if self.config.use_image_disc:                    
+                            g_loss_adv = - torch.mean(out_disc)
+                            g_loss += self.config.lambda_g_att * g_loss_att
+                            scalars['G/loss_adv'] = g_loss_adv.item()
+                        if self.config.use_image_classifier:
+                            g_loss_att = self.classification_loss(out_att, b_att)
+                            g_loss += self.config.lambda_g_att * g_loss_att
+                            scalars['G/loss_att'] = g_loss_att.item()
+
+
+                    # backward and optimize
+                    self.optimizer_G.zero_grad()
+                    g_loss.backward()
+                    self.optimizer_G.step()
+
+                    # summarize
+                    scalars['G/loss_rec'] = g_loss_rec.item()
+                    scalars['G/loss'] = g_loss.item()
+
+                self.current_iteration += 1
+
+                # =================================================================================== #
+                #                                 4. Miscellaneous                                    #
+                # =================================================================================== #''
+                self.lr_scheduler_G.step()
+                self.lr_scheduler_D.step()
+                self.lr_scheduler_LD.step()
+                scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
+                scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
+                scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
+
+                # print summary on terminal and on tensorboard
+                if self.current_iteration % self.config.summary_step == 0:
+                    et = time.time() - start_time
+                    et = str(datetime.timedelta(seconds=et))[:-7]
+                    print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
+                    for tag, value in scalars.items():
+                        self.writer.add_scalar(tag, value, self.current_iteration)
+
+                # sample
+                if (self.current_iteration) % self.config.sample_step == 0:
+                    self.G.eval()
+                    with torch.no_grad():
+                        self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
+
+                # save checkpoint
+                if self.current_iteration % self.config.checkpoint_step == 0:
+                    self.save_checkpoint()
 
 
 
