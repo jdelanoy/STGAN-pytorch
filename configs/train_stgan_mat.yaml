@@ -74,7 +74,7 @@ lambda_g_rec: 1
 lambda_g_latent: 0.0001
 lambda_ld: 0.01
 
-max_iters: 100000
+max_epoch: 500
 lr_decay_iters: 150000
 
 # steps:

@@ -7,11 +7,24 @@ from PIL import Image
 import random
 import numpy as np
 
+
+class RandomResize(object):
+    def __init__(self, low, high, interpolation=Image.BILINEAR):
+        self.low = low
+        self.high = high
+        self.interpolation = interpolation
+
+    def __call__(self, img):
+        size = np.random.randint(self.low, self.high)
+        return transforms.functional.resize(img, size, self.interpolation)
+
+
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
-    lines = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset.txt'), 'r')]
-    all_attr_names = lines[0].split()
-    print(all_attr_names)
+    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train.txt'), 'r')]
+    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test.txt'), 'r')]
+    all_attr_names = lines_train[0].split()
+    print(mode,all_attr_names)
     attr2idx = {}
     idx2attr = {}
     for i, attr_name in enumerate(all_attr_names):
@@ -19,24 +32,23 @@ def make_dataset(root, mode, selected_attrs):
         idx2attr[i] = attr_name
 
     np.random.seed(10)
-    lines = lines[1:]
+    #lines_train = lines_train[1:]
     if mode == 'train':
-        lines = lines[985:]  # train set contains 200599 images 985:
-    if mode == 'val':
-        np.random.shuffle(lines)
-        lines = lines[:]  # val set contains 200 images :992
+        lines = lines_train[1:]  # train set contains 200599 images 985:
+    if mode == 'val': #put in first half a batch of test images, half of training images
+        np.random.shuffle(lines_train)
+        np.random.shuffle(lines_test)
+        lines = lines_test[:16]+lines_train[:16]  # val set contains 200 images :992
     if mode == 'test':
-        # #only from havran
-        # lines = lines[:985]  # test set contains 1800 images
-        #only from one shape/one env
-        shape=""
-        env=""
-        lines=[line for line in lines if (shape in line and env in line)]
-        # #all
-
-        #take 100 random images
-        np.random.shuffle(lines)
-        lines=lines[:200]
+        np.random.shuffle(lines_test)
+        lines = lines_test[1:]
+        # #only from one shape/one env
+        # shape=""
+        # env=""
+        # lines_train=[line for line in lines_train if (shape in line and env in line)]
+        # #take 100 random images
+        # np.random.shuffle(lines)
+        # lines_train=lines_train[:200]
     #print(len(lines))
     items = []
     for i, line in enumerate(lines):
@@ -82,6 +94,7 @@ class MaterialDataLoader(object):
         transform.append(transforms.ToTensor())
         transform.append(transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
 
+
         if mode == 'train':
             val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
             val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
@@ -89,6 +102,10 @@ class MaterialDataLoader(object):
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
+            transform.insert(0, transforms.RandomVerticalFlip())
+            transform.insert(0, transforms.RandomCrop(size=crop_size))
+            transform.insert(0, RandomResize(low=256, high=300))
+            transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
             train_transform = transforms.Compose(transform)
             train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)

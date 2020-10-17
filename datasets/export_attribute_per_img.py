@@ -15,7 +15,7 @@ def parse_args(required=True):
                       help='Path to the input attribute scores. (required)')
   return parser.parse_args()
 
-def add_image_to_dataset(im,all_scores,outfile):
+def add_image_to_dataset(im,all_scores,attributes,outfile):
     im_name=os.path.split(im)[-1]
     #get the name of the material + write
     name = im_name.split('@')[0].replace("-","")
@@ -29,6 +29,14 @@ def add_image_to_dataset(im,all_scores,outfile):
             outfile.write('\t')
         outfile.write('\n')
 
+def get_random_mat(mat_names,ratio):
+    n_mat=int(len(mat_names)*ratio/100)
+    print("Selectin randomly %i materials over %i"%(n_mat,len(mat_names)))
+    selected_mat=random.sample(mat_names, n_mat)
+    print(selected_mat)
+    return selected_mat
+
+
 def main():
     """Main function."""
     args = parse_args(False)
@@ -37,21 +45,27 @@ def main():
     attributes = list(all_scores.keys())[:-1]
     print(attributes)
     #create the output file and write attribute names
-    outfile=open(args.image_path+"/attributes_dataset.txt",'w')
+    outfile_test=open(args.image_path+"/attributes_dataset_test.txt",'w')
+    outfile_train=open(args.image_path+"/attributes_dataset_train.txt",'w')
     for att in attributes:
-        outfile.write(att+"\t")
-    outfile.write("\n")
+        outfile_test.write(att+"\t")
+        outfile_train.write(att+"\t")
+    outfile_test.write("\n")
+    outfile_train.write("\n")
     #get the list of images
     images = np.sort(glob.glob(args.image_path+"/256px_dataset/*"))
-    #put havran first (test_set)
     print(len(images))
-    images_havran=[im for im in images if "havran" in im]
-    print (len(images_havran))
+    #select test set
+    #put havran first (test_set)
+    test_list=["havran"]
+    #test_list=get_random_mat(all_scores['material_name'],10)
+    images_test=[im for im in images if any(test in im.replace("-","") for test in test_list)]
+    print (len(images_test))
     #for each image
-    for im in images_havran:
-        add_image_to_dataset(im,all_scores,outfile)
+    for im in images_test:
+        add_image_to_dataset(im,all_scores,attributes,outfile_test)
     for im in images:
-        if "havran" in im: continue
-        add_image_to_dataset(im,all_scores,outfile)
+        if im in images_test: continue
+        add_image_to_dataset(im,all_scores,attributes,outfile_train)
 
 main()

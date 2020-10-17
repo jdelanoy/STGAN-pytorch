@@ -233,7 +233,7 @@ class STGANAgent(object):
 
                 attr_diff = b_att_copy - a_att_copy
                 attr_diff = attr_diff if self.config.use_attr_diff else b_att_copy
-
+                scalars = {}
                 # =================================================================================== #
                 #                             2. Train the discriminator                              #
                 # =================================================================================== #
@@ -277,7 +277,6 @@ class STGANAgent(object):
                     d_loss.backward(retain_graph=True)
                     self.optimizer_D.step()
                     # summarize
-                    scalars = {}
                     scalars['D/loss'] = d_loss.item()
 
 
