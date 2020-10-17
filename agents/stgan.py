@@ -231,7 +231,7 @@ class STGANAgent(object):
             # =================================================================================== #
             #                             2. Train the discriminator                              #
             # =================================================================================== #
-            if self.config.use_image_disc or self.config.use_image_classifier:
+            if self.config.use_image_disc or self.config.use_classifier_generator:
                 self.G.eval()
                 self.D.train()
                 self.LD.eval()
@@ -260,7 +260,7 @@ class STGANAgent(object):
                     scalars['D/loss_fake'] = d_loss_adv_fake.item()
                     scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
-                if self.config.use_image_classifier:
+                if self.config.use_classifier_generator:
                     d_loss_att = self.classification_loss(out_att_real, a_att)
                     d_loss += self.config.lambda_d_att * d_loss_att
                     scalars['D/loss_att'] = d_loss_att.item()
@@ -320,7 +320,7 @@ class STGANAgent(object):
                     g_loss += self.config.lambda_g_latent * g_loss_latent
                     scalars['G/loss_latent'] = g_loss_latent.item()
 
-                if self.config.use_image_disc or self.config.use_image_classifier:
+                if self.config.use_image_disc or self.config.use_classifier_generator:
                     # original-to-target domain : Ib_hat -> GAN + classif
                     Ib_hat,_ = self.G(Ia, attr_diff)
                     out_disc, out_att = self.D(Ib_hat)
@@ -328,7 +328,7 @@ class STGANAgent(object):
                         g_loss_adv = - torch.mean(out_disc)
                         g_loss += self.config.lambda_g_att * g_loss_att
                         scalars['G/loss_adv'] = g_loss_adv.item()
-                    if self.config.use_image_classifier:
+                    if self.config.use_classifier_generator:
                         g_loss_att = self.classification_loss(out_att, b_att)
                         g_loss += self.config.lambda_g_att * g_loss_att
                         scalars['G/loss_att'] = g_loss_att.item()
