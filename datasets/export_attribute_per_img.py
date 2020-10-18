@@ -19,7 +19,7 @@ def add_image_to_dataset(im,all_scores,attributes,outfile):
     im_name=os.path.split(im)[-1]
     #get the name of the material + write
     name = im_name.split('@')[0].replace("-","")
-
+#    print(im,name)
     if(name in all_scores['material_name']):
         outfile.write(im_name+"\t")
         #get the scores + write
