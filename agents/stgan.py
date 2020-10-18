@@ -331,7 +331,7 @@ class STGANAgent(object):
                         out_disc, out_att = self.D(Ib_hat)
                         if self.config.use_image_disc:                    
                             g_loss_adv = - torch.mean(out_disc)
-                            g_loss += self.config.lambda_g_att * g_loss_att
+                            g_loss += self.config.lambda_adv * g_loss_adv
                             scalars['G/loss_adv'] = g_loss_adv.item()
                         if self.config.use_classifier_generator:
                             g_loss_att = self.classification_loss(out_att, b_att)
