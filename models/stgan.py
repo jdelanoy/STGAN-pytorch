@@ -53,13 +53,13 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
     return layers
 
 class Generator(nn.Module):
-    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, attr_each_deconv=False):
+    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1):
         super(Generator, self).__init__()
         self.n_attrs = attr_dim
         self.n_layers = n_layers
         self.shortcut_layers = min(shortcut_layers, n_layers - 1)
         self.use_stu = use_stu
-        self.attr_each_deconv = attr_each_deconv
+        self.n_attr_deconv = n_attr_deconv
 
         ##### build encoder
         enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True) #NOTE bias=false for STGAN
@@ -74,7 +74,8 @@ class Generator(nn.Module):
             dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
             enc_size = min(max_dim,conv_dim * 2 ** (i))
 
-            if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+            #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
             if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
                 dec_in = dec_in + enc_size
                 if use_stu:
@@ -108,7 +109,7 @@ class Generator(nn.Module):
         out = z
         a = a.view((out.size(0), self.n_attrs, 1, 1))
         for i, dec_layer in enumerate(self.decoder):
-            if self.attr_each_deconv or i == 0:
+            if i < self.n_attr_deconv:
                 #concatenate attribute
                 size = out.size(2)
                 attr = a.expand((out.size(0), self.n_attrs, size, size))
@@ -130,7 +131,7 @@ class Generator(nn.Module):
         a = a.view((out.size(0), self.n_attrs, 1, 1))
 
         for i, dec_layer in enumerate(self.decoder):
-            if self.attr_each_deconv or i == 0:
+            if i < self.n_attr_deconv:
                 #concatenate attribute
                 size = out.size(2)
                 attr = a.expand((out.size(0), self.n_attrs, size, size))

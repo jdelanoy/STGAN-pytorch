@@ -39,7 +39,7 @@ class STGANAgent(object):
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
         
-        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,attr_each_deconv=self.config.attr_each_deconv)
+        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, self.config.shortcut_layers)
         print(self.G)
