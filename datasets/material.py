@@ -32,16 +32,19 @@ def make_dataset(root, mode, selected_attrs):
         idx2attr[i] = attr_name
 
     np.random.seed(10)
+    random.seed(10)
+    lines_train=lines_train[1:]
+    lines_test=lines_test[1:]
     #lines_train = lines_train[1:]
     if mode == 'train':
-        lines = lines_train[1:]  # train set contains 200599 images 985:
+        lines = lines_train
     if mode == 'val': #put in first half a batch of test images, half of training images
-        np.random.shuffle(lines_train)
-        np.random.shuffle(lines_test)
-        lines = lines_test[:16]+lines_train[:16]  # val set contains 200 images :992
+        #np.random.shuffle(lines_train)
+        #np.random.shuffle(lines_test)
+        lines = random.sample(lines_test,16)+random.sample(lines_train,16)
     if mode == 'test':
         np.random.shuffle(lines_test)
-        lines = lines_test[1:]
+        lines = lines_test+random.sample(lines_train,16)
         # #only from one shape/one env
         # shape=""
         # env=""
