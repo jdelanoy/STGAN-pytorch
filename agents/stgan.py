@@ -454,9 +454,12 @@ class STGANAgent(object):
             embs=embs.reshape(embs.shape[0],-1)
         #fit PCA
         print(embs.shape)
-        pca = FastICA(n_components=100)  
+        pca = PCA(n_components=100)  
         pca.fit(embs)
         reducted_trained_emb = pca.transform(embs)
+        min_axis=np.min(reducted_trained_emb,axis=0)
+        max_axis=np.max(reducted_trained_emb,axis=0)
+        margin_axis=(max_axis-min_axis)*0.2
         # ratio_component = pca.explained_variance_ratio_
         # np.set_printoptions(formatter={'float': lambda x: "{0:0.4f}".format(x)})
         # print("20 first PCA componenents: ",ratio_component[0:20],
@@ -475,7 +478,7 @@ class STGANAgent(object):
 
                 for axis in range (10):
                     #samples = reducted_emb[:,axis]+
-                    samples=np.broadcast_to(np.linspace(np.min(reducted_trained_emb[:,axis]), np.max(reducted_trained_emb[:,axis]), 10), (n_images,10)).transpose(1,0)
+                    samples=np.broadcast_to(np.linspace(min_axis[axis]-margin_axis[axis], max_axis[axis]+margin_axis[axis], 10), (n_images,10)).transpose(1,0)
                     x_fake_list = [x_real.to(self.device)]
                     for sample in samples:
                         edited_embs = np.copy(reducted_emb)
