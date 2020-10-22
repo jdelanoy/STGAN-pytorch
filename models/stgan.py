@@ -103,6 +103,19 @@ class Generator(nn.Module):
                         nn.Tanh()
                     ))
 
+    def decode(self, z, a):
+        #first decoder step
+        out = z
+        a = a.view((out.size(0), self.n_attrs, 1, 1))
+        for i, dec_layer in enumerate(self.decoder):
+            if self.attr_each_deconv or i == 0:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                out = torch.cat([out, attr], dim=1)
+            out = dec_layer(out)
+        return out
+
     def forward(self, x, a):
         # propagate encoder layers
         encoded = []
@@ -130,9 +143,6 @@ class Generator(nn.Module):
                 else:
                     out = torch.cat([out, encoded[-(i+1)]], dim=1)
             out = dec_layer(out)
-
-
-
         return out,encoded[-self.shortcut_layers-1]
 
 class Latent_Discriminator(nn.Module):

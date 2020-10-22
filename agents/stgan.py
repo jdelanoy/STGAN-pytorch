@@ -16,6 +16,7 @@ from PIL import ImageDraw
 from torchvision import transforms
 import numpy as np
 import cv2
+from sklearn.decomposition import PCA, FastICA
 
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
@@ -163,13 +164,15 @@ class STGANAgent(object):
             if self.config.mode == 'train':
                 self.train()
             else:
-                self.test()
-                self.test_classif()
+                self.test_pca()
+                #self.test()
+                #self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
         except Exception as e:
             log_file = open(os.path.join(self.config.log_dir, 'exp_error.log'), 'w+')
             traceback.print_exc(file=log_file)
+            traceback.print_exc()
         finally:
             self.finalize()
 
@@ -432,14 +435,61 @@ class STGANAgent(object):
                 c_trg_list = self.create_labels(c_org, self.config.attrs)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1)),writer=False)
-                #x_real = x_real.to(self.device)
-                # x_fake_list = [x_real]
-                # for c_trg in c_trg_list:
-                #     attr_diff = c_trg - c_org
-                #     x_fake_list.append(self.G(x_real, attr_diff.to(self.device)))
-                # x_concat = torch.cat(x_fake_list, dim=3)
-                # result_path = os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1))
-                # save_image(self.denorm(x_concat.data.cpu()), result_path, nrow=1, padding=0)
+
+    def test_pca(self):
+        self.load_checkpoint()
+        self.G.to(self.device)
+        self.G.eval()
+
+        # go through all training samples to get PCA dimensions
+        tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
+                          desc='Testing at checkpoint {}'.format(self.config.checkpoint))
+        with torch.no_grad():
+            partial_embs = []
+            for i, (x_real, c_org) in enumerate(tqdm_loader):
+                attr_diff = c_org-c_org if self.config.use_attr_diff else c_org #* self.config.thres_int
+                _,encoded=self.G(x_real, attr_diff.to(self.device))
+                partial_embs.append(encoded.detach().cpu())
+            embs = torch.cat(partial_embs, 0).numpy()
+            embs=embs.reshape(embs.shape[0],-1)
+        #fit PCA
+        print(embs.shape)
+        pca = PCA(n_components=100)  
+        pca.fit(embs)
+        reducted_trained_emb = pca.transform(embs)
+        ratio_component = pca.explained_variance_ratio_
+        np.set_printoptions(formatter={'float': lambda x: "{0:0.4f}".format(x)})
+        print("20 first PCA componenents: ",ratio_component[0:20],
+                " => {:0.4f}".format(sum(ratio_component[0:20])))
+
+        #go through all batches and try to move in PCA space
+        tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
+                          desc='Testing at checkpoint {}'.format(self.config.checkpoint))
+        with torch.no_grad():
+            for i, (x_real, c_org) in enumerate(tqdm_loader):
+                n_images=x_real.shape[0]
+                attr_diff = c_org-c_org if self.config.use_attr_diff else c_org #* self.config.thres_int
+                _,encoded=self.G(x_real.to(self.device), attr_diff.to(self.device))
+                numpy_encoded=encoded.detach().cpu().numpy()
+                reducted_emb = pca.transform(numpy_encoded.reshape(n_images,-1))
+
+                for axis in range (10):
+                    #samples = reducted_emb[:,axis]+
+                    samples=np.broadcast_to(np.linspace(np.min(reducted_trained_emb[:,axis]), np.max(reducted_trained_emb[:,axis]), 10), (n_images,10)).transpose(1,0)
+                    x_fake_list = [x_real]
+                    for sample in samples:
+                        edited_embs = np.copy(reducted_emb)
+                        edited_embs[:, axis] = sample
+                        edited_embs = pca.inverse_transform(edited_embs)
+                        tensor_codes = torch.from_numpy(edited_embs.reshape(edited_embs.shape[0],512,2,2))
+                        fake_image = self.G.decode(tensor_codes,attr_diff.to(self.device))
+                        #edited_embs = np.repeat(reducted_emb, 10, 0)
+                        x_fake_list.append(fake_image)
+                    x_concat = torch.cat(x_fake_list, dim=3)
+                    save_image(self.denorm(x_concat.data.cpu()),os.path.join(self.config.result_dir, 'sample_axis_{}_{}.jpg'.format(axis,i + 1)),nrow=1, padding=0)
+
+
+
 
     def finalize(self):
         print('Please wait while finalizing the operation.. Thank you')

@@ -28,7 +28,12 @@ def setup_logging(log_dir):
     exp_errors_file_handler.setLevel(logging.WARNING)
     exp_errors_file_handler.setFormatter(Formatter(log_file_format))
 
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
+    console.setFormatter(Formatter(log_console_format))
+
     main_logger.addHandler(console_handler)
+    main_logger.addHandler(console)
     main_logger.addHandler(exp_file_handler)
     main_logger.addHandler(exp_errors_file_handler)
 
