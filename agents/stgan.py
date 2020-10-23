@@ -164,8 +164,8 @@ class STGANAgent(object):
             if self.config.mode == 'train':
                 self.train()
             else:
-                self.test_pca()
-                #self.test()
+                #self.test_pca()
+                self.test()
                 #self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
