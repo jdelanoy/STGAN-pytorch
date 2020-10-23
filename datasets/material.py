@@ -1,11 +1,12 @@
-import os
 import math
+import os
+import random
+
+import numpy as np
 import torch
+from PIL import Image
 from torch.utils import data
 from torchvision import transforms
-from PIL import Image
-import random
-import numpy as np
 
 
 class RandomResize(object):
@@ -21,10 +22,12 @@ class RandomResize(object):
 
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
-    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train.txt'), 'r')]
-    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test.txt'), 'r')]
+    lines_train = [line.rstrip() for line in
+                   open(os.path.join(root, 'attributes_dataset_train.txt'), 'r')]
+    lines_test = [line.rstrip() for line in
+                  open(os.path.join(root, 'attributes_dataset_test.txt'), 'r')]
     all_attr_names = lines_train[0].split()
-    print(mode,all_attr_names)
+    print(mode, all_attr_names)
     attr2idx = {}
     idx2attr = {}
     for i, attr_name in enumerate(all_attr_names):
@@ -33,18 +36,18 @@ def make_dataset(root, mode, selected_attrs):
 
     np.random.seed(10)
     random.seed(10)
-    lines_train=lines_train[1:]
-    lines_test=lines_test[1:]
-    #lines_train = lines_train[1:]
+    lines_train = lines_train[1:]
+    lines_test = lines_test[1:]
+    # lines_train = lines_train[1:]
     if mode == 'train':
         lines = lines_train
-    if mode == 'val': #put in first half a batch of test images, half of training images
-        #np.random.shuffle(lines_train)
-        #np.random.shuffle(lines_test)
-        lines = random.sample(lines_test,16)+random.sample(lines_train,16)
+    if mode == 'val':  # put in first half a batch of test images, half of training images
+        # np.random.shuffle(lines_train)
+        # np.random.shuffle(lines_test)
+        lines = random.sample(lines_test, 16) + random.sample(lines_train, 16)
     if mode == 'test':
         np.random.shuffle(lines_test)
-        lines = lines_test+random.sample(lines_train,16)
+        lines = lines_test + random.sample(lines_train, 16)
         # #only from one shape/one env
         # shape=""
         # env=""
@@ -52,7 +55,7 @@ def make_dataset(root, mode, selected_attrs):
         # #take 100 random images
         # np.random.shuffle(lines)
         # lines_train=lines_train[:200]
-    #print(len(lines))
+    # print(len(lines))
     items = []
     for i, line in enumerate(lines):
         split = line.split()
@@ -61,9 +64,9 @@ def make_dataset(root, mode, selected_attrs):
         label = []
         for attr_name in selected_attrs:
             idx = attr2idx[attr_name]
-            label.append(float(values[idx])*2-1)
+            label.append(float(values[idx]) * 2 - 1)
         items.append([filename, label])
-        #print([filename, label])
+        # print([filename, label])
     return items
 
 
@@ -86,8 +89,9 @@ class MaterialDataset(data.Dataset):
 
 
 class MaterialDataLoader(object):
-    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16):
-        if mode not in ['train', 'test',]:
+    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128,
+                 batch_size=16):
+        if mode not in ['train', 'test', ]:
             return
 
         transform = []
@@ -97,11 +101,13 @@ class MaterialDataLoader(object):
         transform.append(transforms.ToTensor())
         transform.append(transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
 
-
         if mode == 'train':
-            val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
-            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
-            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            val_transform = transforms.Compose(
+                transform)  # make val loader before transform is inserted
+            val_set = MaterialDataset(root, 'val', selected_attrs,
+                                      transform=val_transform)
+            self.val_loader = data.DataLoader(val_set, batch_size=batch_size,
+                                              shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
@@ -110,11 +116,15 @@ class MaterialDataLoader(object):
             transform.insert(0, RandomResize(low=256, high=300))
             transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
             train_transform = transforms.Compose(transform)
-            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
-            self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
+            train_set = MaterialDataset(root, 'train', selected_attrs,
+                                        transform=train_transform)
+            self.train_loader = data.DataLoader(train_set, batch_size=batch_size,
+                                                shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
             test_transform = transforms.Compose(transform)
-            test_set = MaterialDataset(root, 'test', selected_attrs, transform=test_transform)
-            self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            test_set = MaterialDataset(root, 'test', selected_attrs,
+                                       transform=test_transform)
+            self.test_loader = data.DataLoader(test_set, batch_size=batch_size,
+                                               shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
