@@ -42,9 +42,11 @@ class STGANAgent(object):
         self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, self.config.shortcut_layers)
-        #print(self.G)
-        #print(self.D)
-        #print(self.LD)
+        print(self.G)
+        if self.config.use_image_disc or self.config.use_classifier_generator:
+            print(self.D)
+        if self.config.use_latent_disc:
+            print(self.LD)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
@@ -304,7 +306,6 @@ class STGANAgent(object):
                     self.optimizer_LD.step()
 
                     # summarize
-                    scalars = {}
                     scalars['LD/loss'] = ld_loss.item()
 
                 # =================================================================================== #
