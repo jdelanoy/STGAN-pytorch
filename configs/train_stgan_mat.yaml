@@ -1,5 +1,5 @@
 # meta
-exp_name: faderNet
+exp_name: faderNet_upsample
 mode: train
 cuda: true 
 ngpu: 1
