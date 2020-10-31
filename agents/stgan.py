@@ -42,13 +42,13 @@ class STGANAgent(object):
         self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, self.config.shortcut_layers)
-        print(self.G)
-        print(self.D)
-        print(self.LD)
+        #print(self.G)
+        #print(self.D)
+        #print(self.LD)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
-            self.config.crop_size, self.config.image_size, self.config.batch_size)
+            self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation)
 
         self.current_iteration = 0
         self.cuda = torch.cuda.is_available() & self.config.cuda
@@ -98,12 +98,13 @@ class STGANAgent(object):
         out = (x + 1) / 2
         return out.clamp_(0, 1)
 
-    def create_labels(self, c_org, selected_attrs=None):
+    def create_labels(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
 
         c_trg_list = []
         for i in range(len(selected_attrs)):
-            alphas = np.linspace(-5.0, 5.0, 10)
+            alphas = np.linspace(-max_val, max_val, 10)
+            #alphas = np.linspace(5.0, 5.0, 10)
             #alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
             for alpha in alphas:
                 c_trg = c_org.clone()
@@ -432,9 +433,12 @@ class STGANAgent(object):
         self.G.eval()
         with torch.no_grad():
             for i, (x_real, c_org) in enumerate(tqdm_loader):
-                c_trg_list = self.create_labels(c_org, self.config.attrs)
+                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=5.0)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1)),writer=False)
+                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=15.0)
+                c_trg_list.insert(0, c_org)
+                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}.jpg'.format(i + 1)),writer=False)
 
     def test_pca(self):
         self.load_checkpoint()
@@ -489,7 +493,7 @@ class STGANAgent(object):
                         #edited_embs = np.repeat(reducted_emb, 10, 0)
                         x_fake_list.append(fake_image)
                     x_concat = torch.cat(x_fake_list, dim=3)
-                    save_image(self.denorm(x_concat.data.cpu()),os.path.join(self.config.result_dir, 'sample_ica_axis_{}_{}.jpg'.format(axis,i + 1)),nrow=1, padding=0)
+                    save_image(self.denorm(x_concat.data.cpu()),os.path.join(self.config.result_dir, 'sample_pca_axis_{}_{}.jpg'.format(axis,i + 1)),nrow=1, padding=0)
 
 
 

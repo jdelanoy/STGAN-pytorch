@@ -32,19 +32,19 @@ def make_dataset(root, mode, selected_attrs):
         idx2attr[i] = attr_name
 
     np.random.seed(10)
-    random.seed(10)
+    random.seed(18)
     lines_train=lines_train[1:]
     lines_test=lines_test[1:]
     #lines_train = lines_train[1:]
     if mode == 'train':
         lines = lines_train
     if mode == 'val': #put in first half a batch of test images, half of training images
-        #np.random.shuffle(lines_train)
-        #np.random.shuffle(lines_test)
         lines = random.sample(lines_test,16)+random.sample(lines_train,16)
     if mode == 'test':
         np.random.shuffle(lines_test)
-        lines = lines_test+random.sample(lines_train,16)
+        #lines = lines_test+random.sample(lines_train,16) #for spheres
+        lines = lines_test[:100]+random.sample(lines_train,50) #for full dataset
+
         # #only from one shape/one env
         # shape=""
         # env=""
@@ -86,7 +86,7 @@ class MaterialDataset(data.Dataset):
 
 
 class MaterialDataLoader(object):
-    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16):
+    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False):
         if mode not in ['train', 'test',]:
             return
 
@@ -105,10 +105,11 @@ class MaterialDataLoader(object):
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
-            transform.insert(0, transforms.RandomVerticalFlip())
-            transform.insert(0, transforms.RandomCrop(size=crop_size))
-            transform.insert(0, RandomResize(low=256, high=300))
-            transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
+            if data_augmentation:
+                transform.insert(0, transforms.RandomVerticalFlip())
+                transform.insert(0, transforms.RandomCrop(size=crop_size))
+                transform.insert(0, RandomResize(low=256, high=300))
+                transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
             train_transform = transforms.Compose(transform)
             train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
