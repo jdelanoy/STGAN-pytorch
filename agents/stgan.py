@@ -1,23 +1,4 @@
-import os
-import logging
-import time
-import datetime
-import traceback
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.backends import cudnn
-from torchvision.utils import make_grid, save_image
-from tqdm import tqdm
-from tensorboardX import SummaryWriter
-from PIL import ImageFont
-from PIL import ImageDraw 
-from torchvision import transforms
-import numpy as np
-import cv2
-from sklearn.decomposition import PCA, FastICA
-
+h
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
 from utils.misc import print_cuda_statistics
@@ -324,6 +305,11 @@ class STGANAgent(object):
                         g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
+                    #print([Ia.shape,a_att_copy.shape])
+                    #print(z.shape)
+                    #summary(self.G, [Ia.shape[1:],a_att_copy.shape[1:]])
+                    #summary(self.LD, z.shape[1:])
+
                     if self.config.use_latent_disc:
                         out_att = self.LD(z)
                         g_loss_latent = -self.classification_loss(out_att, a_att)
@@ -434,12 +420,12 @@ class STGANAgent(object):
         self.G.eval()
         with torch.no_grad():
             for i, (x_real, c_org) in enumerate(tqdm_loader):
+                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
+                c_trg_list.insert(0, c_org)
+                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=5.0)
                 c_trg_list.insert(0, c_org)
-                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1)),writer=False)
-                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=15.0)
-                c_trg_list.insert(0, c_org)
-                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}.jpg'.format(i + 1)),writer=False)
+                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
 
     def test_pca(self):
         self.load_checkpoint()
