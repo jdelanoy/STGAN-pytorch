@@ -144,7 +144,7 @@ class Generator(nn.Module):
                 else:
                     out = torch.cat([out, encoded[-(i+1)]], dim=1)
             out = dec_layer(out)
-        return out,encoded[-self.shortcut_layers-1]
+        return out,encoded
 
 class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2):

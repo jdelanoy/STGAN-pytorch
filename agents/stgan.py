@@ -22,12 +22,12 @@ class STGANAgent(object):
         
         self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
-        self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, self.config.shortcut_layers)
+        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
         print(self.G)
         if self.config.use_image_disc or self.config.use_classifier_generator:
             print(self.D)
         if self.config.use_latent_disc:
-            print(self.LD)
+            print(self.LDs)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
@@ -55,13 +55,13 @@ class STGANAgent(object):
             torch.save(state, os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.current_iteration)))
         save_one_model(self.G,self.optimizer_G,'G')
         save_one_model(self.D,self.optimizer_D,'D')
-        save_one_model(self.LD,self.optimizer_LD,'LD')
+        [save_one_model(self.LDs[branch],self.optimizer_LDs[branch],'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
     def load_checkpoint(self):
         if self.config.checkpoint is None:
             self.G.to(self.device)
             self.D.to(self.device)
-            self.LD.to(self.device)
+            [self.LD.to(self.device) for self.LD in self.LDs]
             return
         def load_one_model(model,optimizer,name):
             G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.config.checkpoint)),map_location=torch.device('cpu'))
@@ -72,7 +72,7 @@ class STGANAgent(object):
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
+        [load_one_model(self.LDs,self.optimizer_LDs if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
         self.current_iteration = self.config.checkpoint
 
@@ -164,17 +164,16 @@ class STGANAgent(object):
     def train(self):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_D = optim.Adam(self.D.parameters(), self.config.d_lr, [self.config.beta1, self.config.beta2])
-        self.optimizer_LD = optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2])
+        self.optimizer_LDs = [optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2]) for self.LD in self.LDs]
         self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1)
         self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1)
-        self.lr_scheduler_LD = optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1)
+        self.lr_scheduler_LDs = [optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1)  for self.optimizer_LD in self.optimizer_LDs]
 
         self.load_checkpoint()
         if self.cuda and self.config.ngpu > 1:
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
-            self.LD = nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
-
+            self.LD = [nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))  for self.LD in self.LDs]
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
         Ia_sample, a_sample = next(val_iter)
@@ -184,7 +183,7 @@ class STGANAgent(object):
 
         self.g_lr = self.lr_scheduler_G.get_lr()[0]
         self.d_lr = self.lr_scheduler_D.get_lr()[0]
-        self.ld_lr = self.lr_scheduler_LD.get_lr()[0]
+        self.ld_lr = self.lr_scheduler_LDs[0].get_lr()[0]
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
 
@@ -227,7 +226,7 @@ class STGANAgent(object):
                 if self.config.use_image_disc or self.config.use_classifier_generator:
                     self.G.eval()
                     self.D.train()
-                    self.LD.eval()
+                    [self.LD.eval()  for self.LD in self.LDs]
 
                     # input is the real image Ia
                     out_disc_real, out_att_real = self.D(Ia)
@@ -273,21 +272,22 @@ class STGANAgent(object):
                 if self.config.use_latent_disc:
                     self.G.eval()
                     self.D.eval()
-                    self.LD.train()
+                    [self.LD.train() for self.LD in self.LDs]
                     # compute disc loss on encoded image
                     _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                    out_att = self.LD(z)
+                    for branch in range(self.config.shortcut_layers+1):
+                        out_att = self.LDs[branch](z[-branch-1])
 
-                    #classification loss
-                    ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                        #classification loss
+                        ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
 
-                    # backward and optimize
-                    self.optimizer_LD.zero_grad()
-                    ld_loss.backward(retain_graph=True)
-                    self.optimizer_LD.step()
+                        # backward and optimize
+                        self.optimizer_LDs[branch].zero_grad()
+                        ld_loss.backward(retain_graph=True)
+                        self.optimizer_LDs[branch].step()
 
-                    # summarize
-                    scalars['LD/loss'] = ld_loss.item()
+                        # summarize
+                        scalars['LD{}/loss'.format(branch)] = ld_loss.item()
 
                 # =================================================================================== #
                 #                               3. Train the generator                                #
@@ -295,7 +295,7 @@ class STGANAgent(object):
                 if (self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
                     self.G.train()
                     self.D.eval()
-                    self.LD.eval()
+                    [ self.LD.eval() for self.LD in self.LDs]
 
                     # target-to-original domain : Ia_hat -> reconstruction
                     Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
@@ -311,10 +311,11 @@ class STGANAgent(object):
                     #summary(self.LD, z.shape[1:])
 
                     if self.config.use_latent_disc:
-                        out_att = self.LD(z)
-                        g_loss_latent = -self.classification_loss(out_att, a_att)
-                        g_loss += self.config.lambda_g_latent * g_loss_latent
-                        scalars['G/loss_latent'] = g_loss_latent.item()
+                        for branch in range(self.config.shortcut_layers+1):
+                            out_att = self.LDs[branch](z[-branch-1])
+                            g_loss_latent = -self.classification_loss(out_att, a_att)
+                            g_loss += self.config.lambda_g_latent * g_loss_latent
+                            scalars['G/loss_latent{}'.format(branch)] = g_loss_latent.item()
 
                     if self.config.use_image_disc or self.config.use_classifier_generator:
                         # original-to-target domain : Ib_hat -> GAN + classif
@@ -346,9 +347,9 @@ class STGANAgent(object):
                 # =================================================================================== #''
                 self.lr_scheduler_G.step()
                 self.lr_scheduler_D.step()
-                self.lr_scheduler_LD.step()
+                [self.lr_scheduler_LD.step() for self.lr_scheduler_LD in self.lr_scheduler_LDs]
                 scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-                scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
+                scalars['lr/ld_lr'] = self.lr_scheduler_LDs[0].get_lr()[0]
                 scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
 
                 # print summary on terminal and on tensorboard
@@ -440,7 +441,7 @@ class STGANAgent(object):
             for i, (x_real, c_org) in enumerate(tqdm_loader):
                 attr_diff = c_org-c_org if self.config.use_attr_diff else c_org #* self.config.thres_int
                 _,encoded=self.G(x_real.to(self.device), attr_diff.to(self.device))
-                partial_embs.append(encoded.detach().cpu())
+                partial_embs.append(encoded[-1].detach().cpu())
             embs = torch.cat(partial_embs, 0).numpy()
             embs=embs.reshape(embs.shape[0],-1)
         #fit PCA
@@ -464,7 +465,7 @@ class STGANAgent(object):
                 n_images=x_real.shape[0]
                 attr_diff = c_org-c_org if self.config.use_attr_diff else c_org #* self.config.thres_int
                 _,encoded=self.G(x_real.to(self.device), attr_diff.to(self.device))
-                numpy_encoded=encoded.detach().cpu().numpy()
+                numpy_encoded=encoded[-1].detach().cpu().numpy()
                 reducted_emb = pca.transform(numpy_encoded.reshape(n_images,-1))
 
                 for axis in range (10):
