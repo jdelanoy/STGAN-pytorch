@@ -1,8 +1,10 @@
 from typing import List
-from torchvision import models
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
+
 
 @torch.jit.script
 def gram_matrix(y):
@@ -85,11 +87,11 @@ class PerceptualLoss(torch.jit.ScriptModule):
             x_hat = x_hat.repeat(1, 3, 1, 1)
 
         # start computing the loss
-        loss: torch.Tensor = torch.tensor([0])
+        loss: torch.Tensor = torch.tensor([0], device=x.device, dtype=x.dtype)
         for _, layer in self.model.named_children():
+
             x = layer(x)
             x_hat = layer(x_hat)
-
             if self.use_gram_matrix:
                 loss = loss + self.mse(gram_matrix(x), gram_matrix(x_hat))
             else:
@@ -101,6 +103,7 @@ class PerceptualLoss(torch.jit.ScriptModule):
     def setup_layers(
             layers: List[str] = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'],
             features: nn.Module = models.vgg16(pretrained=True).features) -> nn.Module:
+
         # create structure to store the needed layers
         model: nn.Sequential = nn.Sequential()
         for layer in layers:
@@ -135,8 +138,7 @@ class PerceptualLoss(torch.jit.ScriptModule):
 
 
 if __name__ == '__main__':
-    a = torch.randn(8, 3, 256, 256)
-    b = torch.randn(8, 3, 256, 256)
-    loss = PerceptualLoss()
-
+    a = torch.randn(8, 3, 256, 256).cuda()
+    b = torch.randn(8, 3, 256, 256).cuda()
+    loss = PerceptualLoss().cuda()
     print(loss(a, b))
