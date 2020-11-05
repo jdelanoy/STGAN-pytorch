@@ -1,4 +1,23 @@
-h
+import os
+import logging
+import time
+import datetime
+import traceback
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchsummary import summary
+from torchvision.utils import make_grid, save_image
+from tqdm import tqdm
+from tensorboardX import SummaryWriter
+from PIL import ImageFont
+from PIL import ImageDraw 
+from torchvision import transforms
+import numpy as np
+import cv2
+from sklearn.decomposition import PCA, FastICA
+
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
 from utils.misc import print_cuda_statistics
@@ -6,7 +25,6 @@ from utils.im_util import _imscatter
 import matplotlib.pyplot as plt
 import numpy as np
 
-cudnn.benchmark = True
 
 
 class STGANAgent(object):
@@ -72,7 +90,7 @@ class STGANAgent(object):
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        [load_one_model(self.LDs,self.optimizer_LDs if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
+        [load_one_model(self.LDs[branch],self.optimizer_LDs[branch] if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
         self.current_iteration = self.config.checkpoint
 
@@ -287,7 +305,7 @@ class STGANAgent(object):
                         self.optimizer_LDs[branch].step()
 
                         # summarize
-                        scalars['LD{}/loss'.format(branch)] = ld_loss.item()
+                        scalars['LD/loss{}'.format(branch)] = ld_loss.item()
 
                 # =================================================================================== #
                 #                               3. Train the generator                                #
@@ -305,13 +323,13 @@ class STGANAgent(object):
                         g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
-                    #print([Ia.shape,a_att_copy.shape])
-                    #print(z.shape)
-                    #summary(self.G, [Ia.shape[1:],a_att_copy.shape[1:]])
-                    #summary(self.LD, z.shape[1:])
-
                     if self.config.use_latent_disc:
                         for branch in range(self.config.shortcut_layers+1):
+                            #print([Ia.shape,a_att_copy.shape])
+                            #print(z[-branch-1].shape)
+                            #summary(self.G, [Ia.shape[1:],a_att_copy.shape[1:]])
+                            #summary(self.LDs[branch], z[-branch-1].shape[1:])
+                            
                             out_att = self.LDs[branch](z[-branch-1])
                             g_loss_latent = -self.classification_loss(out_att, a_att)
                             g_loss += self.config.lambda_g_latent * g_loss_latent
