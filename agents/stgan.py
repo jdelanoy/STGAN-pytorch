@@ -21,6 +21,7 @@ from sklearn.decomposition import PCA, FastICA
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
 from models.vggPerceptualLoss import VGGPerceptualLoss
+from models.perceptual_loss import PerceptualLoss
 from utils.misc import print_cuda_statistics
 from utils.im_util import _imscatter
 import matplotlib.pyplot as plt
@@ -211,7 +212,7 @@ class STGANAgent(object):
         start_batch = self.current_iteration // self.data_loader.train_iterations
         print(self.current_iteration,self.data_loader.train_iterations,start_batch)
         if self.config.rec_loss == 'perceptual':
-            perceptual_loss = VGGPerceptualLoss()
+            perceptual_loss = PerceptualLoss()
 
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):

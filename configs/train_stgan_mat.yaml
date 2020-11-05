@@ -1,14 +1,14 @@
 # meta
-exp_name: faderNet
+exp_name: sphere_random_stpeter_faderNet_att_one_deconv_latent_g_1_perceptual2
 mode: train
 cuda: true 
 ngpu: 1
 
 # data
 dataset: material
-data_augmentation: False
-#data_root: /home/jdelanoy/rendering_materials/renders/render_dataset_sphere_rotate_random/stpeters #renders_materials_manu
-data_root: /home/johanna/Documents/rendering_materials/renders/datasets_allshapes/renders_by_geom_ldr/
+data_augmentation: True
+data_root: /home/jdelanoy/rendering_materials/renders/render_dataset_sphere_rotate_random/stpeters/
+#data_root: /home/johanna/Documents/rendering_materials/renders/evaluation_dset
 #data_root: /Users/delanoy/Documents/postdoc/project1_material_networks/dataset/renders_by_geom_ldr/
 crop_size: 240
 image_size: 128
@@ -38,7 +38,7 @@ shortcut_layers: 0
 stu_kernel_size: 3
 use_stu: false
 one_more_conv: false
-n_attr_deconv: 6
+n_attr_deconv: 1
 use_attr_diff: false
 #other
 attrs: [glossy]
@@ -49,16 +49,16 @@ checkpoint: ~
 # beta1: 0.5
 # beta2: 0.999
 # g_lr: 0.0002
-# d_lr: 0.0002
-# ld_lr: 0.00002
+# d_lr: 0.00002
+# ld_lr: 0
 # n_critic: 5
 # lambda_adv : 1
 # lambda_gp: 10
 # lambda_d_att: 1000
 # lambda_g_att: 10000
 # lambda_g_rec: 100
-# lambda_g_latent: 0.0001
-# lambda_ld: 0.01
+# lambda_g_latent: 0
+# lambda_ld: 0
 # training (FaderNet)
 batch_size: 32
 beta1: 0.9
@@ -71,26 +71,26 @@ lambda_adv : 0
 lambda_gp: 0
 lambda_d_att: 0
 lambda_g_att: 0
-lambda_g_rec: 1
-lambda_g_latent: 0.0001
+lambda_g_rec: 0.01
+lambda_g_latent: 1
 lambda_ld: 0.01
 
-max_epoch: 1000
+max_epoch: 900
 lr_decay_iters: 150000
 
 # steps:
 #33 iter per batch
-summary_step: 50
+summary_step: 100
 sample_step: 500
-checkpoint_step: 5000
+checkpoint_step: 10000
 
 #which part activate
 #true for FaderNet
 use_latent_disc: true
 #true for STGAN
-use_image_disc: false 
+use_image_disc: false
 use_classifier_generator: false
-use_l1_rec_loss: false 
+rec_loss: 'perceptual'
 
 #TODO not implemented yet
 separate_C_D: false 
