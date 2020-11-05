@@ -20,12 +20,13 @@ class VGGPerceptualLoss(torch.nn.Module):
         self.normalize = normalize
 
     def forward(self, input, target):
+        self.blocks = self.blocks.to(input)
         if input.shape[1] != 3:
             input = input.repeat(1, 3, 1, 1)
             target = target.repeat(1, 3, 1, 1)
         if self.normalize:
-            input = (input-self.mean) / self.std
-            target = (target-self.mean) / self.std
+            input = ((input*0.5+0.5)-self.mean.to(input)) / self.std.to(input)
+            target = ((target*0.5+0.5)-self.mean.to(input)) / self.std.to(input)
         if self.resize:
             input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
             target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
@@ -33,9 +34,9 @@ class VGGPerceptualLoss(torch.nn.Module):
         x = input
         y = target
         for i,block in enumerate(self.blocks):
-            print(i)
+            #print(i)
             x = block(x)
             y = block(y)
-            print(x.shape)
+            #print(x.shape)
             loss = loss + torch.nn.functional.mse_loss(x, y)
-        return loss
+        return loss/4
