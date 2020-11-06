@@ -212,7 +212,7 @@ class STGANAgent(object):
         start_batch = self.current_iteration // self.data_loader.train_iterations
         print(self.current_iteration,self.data_loader.train_iterations,start_batch)
         if self.config.rec_loss == 'perceptual':
-            perceptual_loss = PerceptualLoss()
+            perceptual_loss = PerceptualLoss().to(self.device)
 
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
