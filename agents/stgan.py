@@ -168,7 +168,8 @@ class STGANAgent(object):
             else:
                 #self.test_pca()
                 self.test()
-                #self.test_classif()
+                if self.config.use_classifier_generator:
+                    self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
         except Exception as e:
@@ -224,7 +225,7 @@ class STGANAgent(object):
                     Ia, a_att = next(data_iter)
 
                 # generate target domain labels randomly
-                b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
+                b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
                 a_att_copy = a_att.clone()
                 b_att_copy = b_att.clone()
@@ -422,11 +423,11 @@ class STGANAgent(object):
                                 ax=ax[att][1])
                         #print(out_att[j][att])
             for i in range(len(self.config.attrs)):
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,"0"))
+                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,"0",self.config.checkpoint))
                 print(result_path)
                 all_figs[i][0].savefig(result_path, dpi=300, bbox_inches='tight')
                 #all_figs[i][0].show()
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,1))
+                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,1,self.config.checkpoint))
                 all_figs[i][1].savefig(result_path, dpi=300, bbox_inches='tight')
 
     def test(self):
