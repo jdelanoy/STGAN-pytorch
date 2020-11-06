@@ -247,42 +247,42 @@ class STGANAgent(object):
                     self.D.train()
                     [self.LD.eval()  for self.LD in self.LDs]
 
-                    # input is the real image Ia
-                    out_disc_real, out_att_real = self.D(Ia)
+                    for _ in range(self.config.n_critic):
+                        # input is the real image Ia
+                        out_disc_real, out_att_real = self.D(Ia)
 
-                    d_loss = 0
-                    if self.config.use_image_disc:
-                        # fake image Ib_hat
-                        Ib_hat,_ = self.G(Ia, attr_diff)
-                        out_disc_fake, _ = self.D(Ib_hat.detach())
-                        #adversarial losses
-                        d_loss_adv_real = - torch.mean(out_disc_real)
-                        d_loss_adv_fake = torch.mean(out_disc_fake)
-                        # compute loss for gradient penalty
-                        alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-                        x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
-                        out_disc, _ = self.D(x_hat)
-                        d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
-                        #full GAN loss
-                        d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
-                        d_loss += self.config.lambda_adv * d_loss_adv
-                        scalars['D/loss_adv'] = d_loss_adv.item()
-                        scalars['D/loss_real'] = d_loss_adv_real.item()
-                        scalars['D/loss_fake'] = d_loss_adv_fake.item()
-                        scalars['D/loss_gp'] = d_loss_adv_gp.item()
+                        d_loss = 0
+                        if self.config.use_image_disc:
+                            # fake image Ib_hat
+                            Ib_hat,_ = self.G(Ia, attr_diff)
+                            out_disc_fake, _ = self.D(Ib_hat.detach())
+                            #adversarial losses
+                            d_loss_adv_real = - torch.mean(out_disc_real)
+                            d_loss_adv_fake = torch.mean(out_disc_fake)
+                            # compute loss for gradient penalty
+                            alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+                            x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                            out_disc, _ = self.D(x_hat)
+                            d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
+                            #full GAN loss
+                            d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
+                            d_loss += self.config.lambda_adv * d_loss_adv
+                            scalars['D/loss_adv'] = d_loss_adv.item()
+                            scalars['D/loss_real'] = d_loss_adv_real.item()
+                            scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                            scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
-                    if self.config.use_classifier_generator:
-                        d_loss_att = self.classification_loss(out_att_real, a_att)
-                        d_loss += self.config.lambda_d_att * d_loss_att
-                        scalars['D/loss_att'] = d_loss_att.item()
+                        if self.config.use_classifier_generator:
+                            d_loss_att = self.classification_loss(out_att_real, a_att)
+                            d_loss += self.config.lambda_d_att * d_loss_att
+                            scalars['D/loss_att'] = d_loss_att.item()
 
-
-                    # backward and optimize
-                    self.optimizer_D.zero_grad()
-                    d_loss.backward(retain_graph=True)
-                    self.optimizer_D.step()
-                    # summarize
-                    scalars['D/loss'] = d_loss.item()
+                        # backward and optimize
+                        self.optimizer_D.zero_grad()
+                        d_loss.backward(retain_graph=True)
+                        self.optimizer_D.step()
+                        # summarize
+                        scalars['D/loss'] = d_loss.item()
 
 
                 # =================================================================================== #
@@ -294,24 +294,26 @@ class STGANAgent(object):
                     [self.LD.train() for self.LD in self.LDs]
                     # compute disc loss on encoded image
                     _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                    for branch in range(self.config.shortcut_layers+1):
-                        out_att = self.LDs[branch](z[-branch-1])
 
-                        #classification loss
-                        ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                    for _ in range(self.config.n_critic_ld):
+                        for branch in range(self.config.shortcut_layers+1):
+                            out_att = self.LDs[branch](z[-branch-1])
 
-                        # backward and optimize
-                        self.optimizer_LDs[branch].zero_grad()
-                        ld_loss.backward(retain_graph=True)
-                        self.optimizer_LDs[branch].step()
-
-                        # summarize
-                        scalars['LD/loss{}'.format(branch)] = ld_loss.item()
+                            #classification loss
+                            ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                            
+                            # backward and optimize
+                            self.optimizer_LDs[branch].zero_grad()
+                            ld_loss.backward(retain_graph=True)
+                            self.optimizer_LDs[branch].step()
+                            
+                            # summarize
+                            scalars['LD/loss{}'.format(branch)] = ld_loss.item()
 
                 # =================================================================================== #
                 #                               3. Train the generator                                #
                 # =================================================================================== #
-                if (self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
+                if True: #(self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
                     self.G.train()
                     self.D.eval()
                     [ self.LD.eval() for self.LD in self.LDs]
@@ -336,7 +338,7 @@ class STGANAgent(object):
                             g_loss += self.config.lambda_g_latent * g_loss_latent
                             scalars['G/loss_latent{}'.format(branch)] = g_loss_latent.item()
 
-                    if self.config.use_image_disc or self.config.use_classifier_generator:
+                    if (self.config.use_image_disc or self.config.use_classifier_generator):
                         # original-to-target domain : Ib_hat -> GAN + classif
                         Ib_hat,_ = self.G(Ia, attr_diff)
                         out_disc, out_att = self.D(Ib_hat)
@@ -345,9 +347,11 @@ class STGANAgent(object):
                             g_loss += self.config.lambda_adv * g_loss_adv
                             scalars['G/loss_adv'] = g_loss_adv.item()
                         if self.config.use_classifier_generator:
+                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-30000)/20000,1),0)
                             g_loss_att = self.classification_loss(out_att, b_att)
-                            g_loss += self.config.lambda_g_att * g_loss_att
+                            g_loss += lambda_new * g_loss_att
                             scalars['G/loss_att'] = g_loss_att.item()
+                            scalars['G/lambda_new'] = lambda_new
 
 
                     # backward and optimize
