@@ -20,6 +20,8 @@ from sklearn.decomposition import PCA, FastICA
 
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
+from models.vggPerceptualLoss import VGGPerceptualLoss
+from models.perceptual_loss import PerceptualLoss
 from utils.misc import print_cuda_statistics
 from utils.im_util import _imscatter
 import matplotlib.pyplot as plt
@@ -209,6 +211,8 @@ class STGANAgent(object):
 
         start_batch = self.current_iteration // self.data_loader.train_iterations
         print(self.current_iteration,self.data_loader.train_iterations,start_batch)
+        if self.config.rec_loss == 'perceptual':
+            perceptual_loss = PerceptualLoss().to(self.device)
 
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
@@ -320,10 +324,12 @@ class STGANAgent(object):
 
                     # target-to-original domain : Ia_hat -> reconstruction
                     Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                    if self.config.use_l1_rec_loss:
+                    if self.config.rec_loss == 'l1':
                         g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
-                    else:
+                    elif self.config.rec_loss == 'l2':
                         g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
+                    elif self.config.rec_loss == 'perceptual':
+                        g_loss_rec = perceptual_loss(Ia, Ia_hat)
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
