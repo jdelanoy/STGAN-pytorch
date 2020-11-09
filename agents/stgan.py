@@ -186,11 +186,14 @@ class STGANAgent(object):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_D = optim.Adam(self.D.parameters(), self.config.d_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_LDs = [optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2]) for self.LD in self.LDs]
-        self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1)
-        self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1)
-        self.lr_scheduler_LDs = [optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1)  for self.optimizer_LD in self.optimizer_LDs]
-
         self.load_checkpoint()
+
+        last_epoch=-1 if self.config.checkpoint == None else self.config.checkpoint
+        self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+        self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+        self.lr_scheduler_LDs = [optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+                                 for self.optimizer_LD in self.optimizer_LDs]
+
         if self.cuda and self.config.ngpu > 1:
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
@@ -353,7 +356,7 @@ class STGANAgent(object):
                             g_loss += self.config.lambda_adv * g_loss_adv
                             scalars['G/loss_adv'] = g_loss_adv.item()
                         if self.config.use_classifier_generator:
-                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-30000)/20000,1),0)
+                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-20000)/20000,1),0)
                             g_loss_att = self.classification_loss(out_att, b_att)
                             g_loss += lambda_new * g_loss_att
                             scalars['G/loss_att'] = g_loss_att.item()
