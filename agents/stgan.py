@@ -332,7 +332,7 @@ class STGANAgent(object):
                     elif self.config.rec_loss == 'l2':
                         g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
                     elif self.config.rec_loss == 'perceptual':
-                        g_loss_rec = perceptual_loss(Ia, Ia_hat)
+                        g_loss_rec = 0.1 * perceptual_loss(Ia, Ia_hat) + torch.mean(torch.abs(Ia - Ia_hat))
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
