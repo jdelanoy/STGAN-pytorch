@@ -282,6 +282,13 @@ class STGANAgent(object):
                         if self.config.use_classifier_generator:
                             d_loss_att = self.classification_loss(out_att_real, a_att)
                             d_loss += self.config.lambda_d_att * d_loss_att
+                            #train with generator images
+                            if(self.current_iteration>30000):
+                                Ia_hat,_ = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                                _, out_att_fake = self.D(Ia_hat.detach())
+                                d_loss_att2 = self.classification_loss(out_att_fake, a_att)
+                                scalars['D/loss_att2'] = d_loss_att2.item()
+                                d_loss += self.config.lambda_d_att * d_loss_att2
                             scalars['D/loss_att'] = d_loss_att.item()
 
                         # backward and optimize
