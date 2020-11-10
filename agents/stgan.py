@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.backends import cudnn
+from torchsummary import summary
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
@@ -27,7 +27,6 @@ from utils.im_util import _imscatter
 import matplotlib.pyplot as plt
 import numpy as np
 
-cudnn.benchmark = True
 
 
 class STGANAgent(object):
@@ -93,7 +92,7 @@ class STGANAgent(object):
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        [load_one_model(self.LDs,self.optimizer_LDs if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
+        [load_one_model(self.LDs[branch],self.optimizer_LDs[branch] if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
         self.current_iteration = self.config.checkpoint
 
@@ -171,7 +170,8 @@ class STGANAgent(object):
             else:
                 #self.test_pca()
                 self.test()
-                #self.test_classif()
+                if self.config.use_classifier_generator:
+                    self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
         except Exception as e:
@@ -186,11 +186,14 @@ class STGANAgent(object):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_D = optim.Adam(self.D.parameters(), self.config.d_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_LDs = [optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2]) for self.LD in self.LDs]
-        self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1)
-        self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1)
-        self.lr_scheduler_LDs = [optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1)  for self.optimizer_LD in self.optimizer_LDs]
-
         self.load_checkpoint()
+
+        last_epoch=-1 if self.config.checkpoint == None else self.config.checkpoint
+        self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+        self.lr_scheduler_D = optim.lr_scheduler.StepLR(self.optimizer_D, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+        self.lr_scheduler_LDs = [optim.lr_scheduler.StepLR(self.optimizer_LD, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+                                 for self.optimizer_LD in self.optimizer_LDs]
+
         if self.cuda and self.config.ngpu > 1:
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
@@ -229,7 +232,7 @@ class STGANAgent(object):
                     Ia, a_att = next(data_iter)
 
                 # generate target domain labels randomly
-                b_att = a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
+                b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
                 a_att_copy = a_att.clone()
                 b_att_copy = b_att.clone()
@@ -251,42 +254,42 @@ class STGANAgent(object):
                     self.D.train()
                     [self.LD.eval()  for self.LD in self.LDs]
 
-                    # input is the real image Ia
-                    out_disc_real, out_att_real = self.D(Ia)
+                    for _ in range(self.config.n_critic):
+                        # input is the real image Ia
+                        out_disc_real, out_att_real = self.D(Ia)
 
-                    d_loss = 0
-                    if self.config.use_image_disc:
-                        # fake image Ib_hat
-                        Ib_hat,_ = self.G(Ia, attr_diff)
-                        out_disc_fake, _ = self.D(Ib_hat.detach())
-                        #adversarial losses
-                        d_loss_adv_real = - torch.mean(out_disc_real)
-                        d_loss_adv_fake = torch.mean(out_disc_fake)
-                        # compute loss for gradient penalty
-                        alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-                        x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
-                        out_disc, _ = self.D(x_hat)
-                        d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
-                        #full GAN loss
-                        d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
-                        d_loss += self.config.lambda_adv * d_loss_adv
-                        scalars['D/loss_adv'] = d_loss_adv.item()
-                        scalars['D/loss_real'] = d_loss_adv_real.item()
-                        scalars['D/loss_fake'] = d_loss_adv_fake.item()
-                        scalars['D/loss_gp'] = d_loss_adv_gp.item()
+                        d_loss = 0
+                        if self.config.use_image_disc:
+                            # fake image Ib_hat
+                            Ib_hat,_ = self.G(Ia, attr_diff)
+                            out_disc_fake, _ = self.D(Ib_hat.detach())
+                            #adversarial losses
+                            d_loss_adv_real = - torch.mean(out_disc_real)
+                            d_loss_adv_fake = torch.mean(out_disc_fake)
+                            # compute loss for gradient penalty
+                            alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+                            x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                            out_disc, _ = self.D(x_hat)
+                            d_loss_adv_gp = self.gradient_penalty(out_disc, x_hat)
+                            #full GAN loss
+                            d_loss_adv = d_loss_adv_real + d_loss_adv_fake + self.config.lambda_gp * d_loss_adv_gp
+                            d_loss += self.config.lambda_adv * d_loss_adv
+                            scalars['D/loss_adv'] = d_loss_adv.item()
+                            scalars['D/loss_real'] = d_loss_adv_real.item()
+                            scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                            scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
-                    if self.config.use_classifier_generator:
-                        d_loss_att = self.classification_loss(out_att_real, a_att)
-                        d_loss += self.config.lambda_d_att * d_loss_att
-                        scalars['D/loss_att'] = d_loss_att.item()
+                        if self.config.use_classifier_generator:
+                            d_loss_att = self.classification_loss(out_att_real, a_att)
+                            d_loss += self.config.lambda_d_att * d_loss_att
+                            scalars['D/loss_att'] = d_loss_att.item()
 
-
-                    # backward and optimize
-                    self.optimizer_D.zero_grad()
-                    d_loss.backward(retain_graph=True)
-                    self.optimizer_D.step()
-                    # summarize
-                    scalars['D/loss'] = d_loss.item()
+                        # backward and optimize
+                        self.optimizer_D.zero_grad()
+                        d_loss.backward(retain_graph=True)
+                        self.optimizer_D.step()
+                        # summarize
+                        scalars['D/loss'] = d_loss.item()
 
 
                 # =================================================================================== #
@@ -298,24 +301,26 @@ class STGANAgent(object):
                     [self.LD.train() for self.LD in self.LDs]
                     # compute disc loss on encoded image
                     _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                    for branch in range(self.config.shortcut_layers+1):
-                        out_att = self.LDs[branch](z[-branch-1])
 
-                        #classification loss
-                        ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                    for _ in range(self.config.n_critic_ld):
+                        for branch in range(self.config.shortcut_layers+1):
+                            out_att = self.LDs[branch](z[-branch-1])
 
-                        # backward and optimize
-                        self.optimizer_LDs[branch].zero_grad()
-                        ld_loss.backward(retain_graph=True)
-                        self.optimizer_LDs[branch].step()
-
-                        # summarize
-                        scalars['LD{}/loss'.format(branch)] = ld_loss.item()
+                            #classification loss
+                            ld_loss = self.classification_loss(out_att, a_att)*self.config.lambda_ld
+                            
+                            # backward and optimize
+                            self.optimizer_LDs[branch].zero_grad()
+                            ld_loss.backward(retain_graph=True)
+                            self.optimizer_LDs[branch].step()
+                            
+                            # summarize
+                            scalars['LD/loss{}'.format(branch)] = ld_loss.item()
 
                 # =================================================================================== #
                 #                               3. Train the generator                                #
                 # =================================================================================== #
-                if (self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
+                if True: #(self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
                     self.G.train()
                     self.D.eval()
                     [ self.LD.eval() for self.LD in self.LDs]
@@ -336,12 +341,17 @@ class STGANAgent(object):
 
                     if self.config.use_latent_disc:
                         for branch in range(self.config.shortcut_layers+1):
+                            #print([Ia.shape,a_att_copy.shape])
+                            #print(z[-branch-1].shape)
+                            #summary(self.G, [Ia.shape[1:],a_att_copy.shape[1:]])
+                            #summary(self.LDs[branch], z[-branch-1].shape[1:])
+                            
                             out_att = self.LDs[branch](z[-branch-1])
                             g_loss_latent = -self.classification_loss(out_att, a_att)
                             g_loss += self.config.lambda_g_latent * g_loss_latent
                             scalars['G/loss_latent{}'.format(branch)] = g_loss_latent.item()
 
-                    if self.config.use_image_disc or self.config.use_classifier_generator:
+                    if (self.config.use_image_disc or self.config.use_classifier_generator):
                         # original-to-target domain : Ib_hat -> GAN + classif
                         Ib_hat,_ = self.G(Ia, attr_diff)
                         out_disc, out_att = self.D(Ib_hat)
@@ -350,9 +360,11 @@ class STGANAgent(object):
                             g_loss += self.config.lambda_adv * g_loss_adv
                             scalars['G/loss_adv'] = g_loss_adv.item()
                         if self.config.use_classifier_generator:
+                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-20000)/20000,1),0)
                             g_loss_att = self.classification_loss(out_att, b_att)
-                            g_loss += self.config.lambda_g_att * g_loss_att
+                            g_loss += lambda_new * g_loss_att
                             scalars['G/loss_att'] = g_loss_att.item()
+                            scalars['G/lambda_new'] = lambda_new
 
 
                     # backward and optimize
@@ -428,11 +440,11 @@ class STGANAgent(object):
                                 ax=ax[att][1])
                         #print(out_att[j][att])
             for i in range(len(self.config.attrs)):
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,"0"))
+                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,"0",self.config.checkpoint))
                 print(result_path)
                 all_figs[i][0].savefig(result_path, dpi=300, bbox_inches='tight')
                 #all_figs[i][0].show()
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}.jpg'.format(i,1))
+                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,1,self.config.checkpoint))
                 all_figs[i][1].savefig(result_path, dpi=300, bbox_inches='tight')
 
     def test(self):
@@ -445,12 +457,12 @@ class STGANAgent(object):
         self.G.eval()
         with torch.no_grad():
             for i, (x_real, c_org) in enumerate(tqdm_loader):
+                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
+                c_trg_list.insert(0, c_org)
+                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=5.0)
                 c_trg_list.insert(0, c_org)
-                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}.jpg'.format(i + 1)),writer=False)
-                c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=15.0)
-                c_trg_list.insert(0, c_org)
-                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}.jpg'.format(i + 1)),writer=False)
+                self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
 
     def test_pca(self):
         self.load_checkpoint()
