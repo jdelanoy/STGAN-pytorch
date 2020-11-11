@@ -67,6 +67,18 @@ class ImageNetInputNorm(nn.Module):
     def forward(self, input):
         return (input - self.norm_mean) / self.norm_std
 
+class NoNorm(nn.Module):
+    """
+    Normalize images channels as torchvision models expects, in a
+    differentiable way
+    """
+
+    def __init__(self):
+        super(NoNorm, self).__init__()
+
+    def forward(self, input):
+        return input
+
 
 def layer_by_name(net, name):
     """
@@ -87,11 +99,13 @@ def PerceptualNet(layers, use_avg_pool=True):
         'conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'maxpool1',
         'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'maxpool2',
         'conv3_1', 'relu3_1', 'conv3_2', 'relu3_2', 'conv3_3', 'relu3_3',
-        'conv3_4', 'relu3_4', 'maxpool3',
+        #'conv3_4', 'relu3_4', 
+        'maxpool3',
         'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3', 'relu4_3',
-        'conv4_4', 'relu4_4', 'maxpool4',
+        #'conv4_4', 'relu4_4', 
+        'maxpool4',
         'conv5_1', 'relu5_1', 'conv5_2', 'relu5_2', 'conv5_3', 'relu5_3',
-        'conv5_4', 'relu5_4',  # 'maxpool5'
+        #'conv5_4', 'relu5_4',  # 'maxpool5'
     ]
 
     m = OrderedDict()
@@ -115,10 +129,10 @@ def PerceptualNet(layers, use_avg_pool=True):
 
 
 class PerceptualLoss(nn.Module):
-    def __init__(self, l, rescale=False, loss_fn=F.mse_loss):
+    def __init__(self, l=['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'], rescale=False, normalize=False, loss_fn=F.mse_loss):
         super(PerceptualLoss, self).__init__()
         self.m = PerceptualNet(l)
-        self.norm = ImageNetInputNorm()
+        self.norm = ImageNetInputNorm() if normalize else NoNorm() 
         self.rescale = rescale
         self.loss_fn = loss_fn
 
@@ -135,12 +149,14 @@ class PerceptualLoss(nn.Module):
         loss = 0
         for k in acts.keys():
             loss += self.loss_fn(acts[k], ref[k])
-        return loss
+
+        return loss/len(acts.keys())
 
 
 if __name__ == '__main__':
+    torch.manual_seed(10)
     a = torch.randn(4, 3, 256, 256)
     b = torch.randn(4, 3, 256, 256)
 
-    P_loss = PerceptualLoss(l=['relu2_2'])
+    P_loss = PerceptualLoss(normalize=True)
     print(P_loss(a, b))
