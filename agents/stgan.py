@@ -74,8 +74,10 @@ class STGANAgent(object):
             }
             torch.save(state, os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.current_iteration)))
         save_one_model(self.G,self.optimizer_G,'G')
-        save_one_model(self.D,self.optimizer_D,'D')
-        [save_one_model(self.LDs[branch],self.optimizer_LDs[branch],'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
+        if (self.config.use_image_disc or self.config.use_classifier_generator):
+            save_one_model(self.D,self.optimizer_D,'D')
+        if self.config.use_latent_disc:
+            [save_one_model(self.LDs[branch],self.optimizer_LDs[branch],'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
     def load_checkpoint(self):
         if self.config.checkpoint is None:
@@ -91,8 +93,10 @@ class STGANAgent(object):
             if self.config.mode == 'train':
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
-        load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        [load_one_model(self.LDs[branch],self.optimizer_LDs[branch] if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
+        if (self.config.use_image_disc or self.config.use_classifier_generator):
+            load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
+        if self.config.use_latent_disc:
+            [load_one_model(self.LDs[branch],self.optimizer_LDs[branch] if self.config.mode=='train' else None,'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
         self.current_iteration = self.config.checkpoint
 
@@ -151,7 +155,8 @@ class STGANAgent(object):
                 image=np.zeros((128,128,3), np.uint8)
                 for i in range(attr_diff.shape[1]):
                     cv2.putText(image, "%.2f"%(c_trg_sample[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
-                    cv2.putText(image, "%.2f"%(out_att[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+                    if self.config.use_classifier_generator:
+                        cv2.putText(image, "%.2f"%(out_att[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                 image=((image.astype(np.float32))/255).transpose(2,0,1)+fake_image[im].cpu().detach().numpy()
                 fake_image[im]=torch.from_numpy(image) #transforms.ToTensor()(image)*(2)-1
 
