@@ -1,146 +1,144 @@
-import functools
-from collections import OrderedDict
+from typing import List
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models as M
+from torchvision import models
 
 
-class WithSavedActivations(nn.Module):
-    def __init__(self, model, types=(nn.Conv2d, nn.Linear), names=None):
-        super(WithSavedActivations, self).__init__()
-        self.model = model
-        self.activations = {}
-        self.detach = True
-        self.handles = []
-        self.set_keep_layers(types, names)
-
-    def set_keep_layers(self, types=(nn.Conv2d, nn.Linear), names=None):
-        for h in self.handles:
-            h.remove()
-
-        if names is None:
-            for name, layer in self.model.named_modules():
-                if isinstance(layer, types):
-                    h = layer.register_forward_hook(functools.partial(
-                        self._save, name))
-                    self.handles.append(h)
-        else:
-            for name in names:
-                layer = layer_by_name(self.model, name)
-                h = layer.register_forward_hook(
-                    functools.partial(self._save, name))
-                self.handles.append(h)
-
-    def _save(self, name, module, input, output):
-        if self.detach:
-            self.activations[name] = output.detach().clone()
-        else:
-            self.activations[name] = output.clone()
-
-    def forward(self, input, detach):
-        self.detach = detach
-        self.activations = {}
-        out = self.model(input)
-        acts = self.activations
-        self.activations = {}
-        return out, acts
+@torch.jit.script
+def gram_matrix(y):
+    (b, ch, h, w) = y.size()
+    features = y.view(b, ch, w * h)
+    features_t = features.transpose(1, 2)
+    gram = features.bmm(features_t) / (ch * h * w)
+    return gram
 
 
-class ImageNetInputNorm(nn.Module):
-    """
-    Normalize images channels as torchvision models expects, in a
-    differentiable way
-    """
+class Interpolate(torch.jit.ScriptModule):
+    __constants__ = ["size", "mode", "align_corners"]
 
-    def __init__(self):
-        super(ImageNetInputNorm, self).__init__()
-        self.register_buffer(
-            'norm_mean',
+    def __init__(self, size, mode="nearest", align_corners=None):
+        super(Interpolate, self).__init__()
+        self.size = size
+        self.mode = mode
+        self.align_corners = align_corners
+
+    @torch.jit.script_method
+    def forward(self, x):
+        return nn.functional.interpolate(input=x,
+                                         size=self.size,
+                                         mode=self.mode,
+                                         align_corners=self.align_corners)
+
+
+class PerceptualLoss(torch.jit.ScriptModule):
+    __constants__ = ["layers", "norm_input", "do_resize", "use_gram_matrix"]
+
+    def __init__(self,
+                 layers: List[str] = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'],
+                 requires_grad: bool = False,
+                 norm_input: bool = False,
+                 do_resize: bool = False,
+                 use_gram_matrix: bool = False
+                 ):
+        super(PerceptualLoss, self).__init__()
+
+        self.layers = layers
+        self.model = self.setup_layers(layers)
+
+        self.mse = nn.MSELoss()
+
+        self.norm_input: bool = norm_input
+        self.do_resize: bool = do_resize
+        self.use_gram_matrix: bool = use_gram_matrix
+
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
+
+        self.resize = Interpolate(mode='bilinear', size=224, align_corners=False)
+
+        self.mean = torch.nn.Parameter(
             torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-
-        self.register_buffer(
-            'norm_std',
+        self.std = torch.nn.Parameter(
             torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
-    def forward(self, input):
-        return (input - self.norm_mean) / self.norm_std
+    @torch.jit.script_method
+    def forward(self, x_hat: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
 
+        if self.norm_input:
+            x_hat = (x_hat - self.mean) / self.std
+            x = (x - self.mean) / self.std
 
-def layer_by_name(net, name):
-    """
-    Get a submodule at any depth of a net by its name
-    Args:
-        net (nn.Module): the base module containing other modules
-        name (str): a name of a submodule of `net`, like `"layer3.0.conv1"`.
-    Returns:
-        The found layer or `None`
-    """
-    for l in net.named_modules():
-        if l[0] == name:
-            return l[1]
+        if self.do_resize:
+            x_hat = self.resize(x_hat)
+            x = self.resize(x)
 
+        if len(x.shape) == 5:  # we have to deal with a transport matrix
+            batch, coeffs, channels, width, height = x.shape
+            x = x.view(batch * coeffs, channels, width, height)
+            x_hat = x_hat.view(batch * coeffs, channels, width, height)
 
-def PerceptualNet(layers, use_avg_pool=True):
-    layer_names = [
-        'conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'maxpool1',
-        'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'maxpool2',
-        'conv3_1', 'relu3_1', 'conv3_2', 'relu3_2', 'conv3_3', 'relu3_3',
-        'conv3_4', 'relu3_4', 'maxpool3',
-        'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3', 'relu4_3',
-        'conv4_4', 'relu4_4', 'maxpool4',
-        'conv5_1', 'relu5_1', 'conv5_2', 'relu5_2', 'conv5_3', 'relu5_3',
-        'conv5_4', 'relu5_4',  # 'maxpool5'
-    ]
+        # make sure that the input is 3 dimensional
+        if x.size(1) == 1:
+            x = x.repeat(1, 3, 1, 1)
+        if x_hat.size(1) == 1:
+            x_hat = x_hat.repeat(1, 3, 1, 1)
 
-    m = OrderedDict()
-    l_partial = layers.copy()
-    for l_name, l in zip(layer_names, M.vgg16(pretrained=True).eval().features):
-        # store only necessary layers
-        if len(l_partial) == 0:
-            break
-        m[l_name] = l
-        if l_name in l_partial:
-            l_partial.remove(l_name)
-    m = nn.Sequential(m)
+        # start computing the loss
+        loss: torch.Tensor = torch.tensor([0], device=x.device, dtype=x.dtype)
+        for _, layer in self.model.named_children():
 
-    for nm, mod in m.named_modules():
-        if 'relu' in nm:
-            setattr(m, nm, nn.ReLU(False))
-        elif 'pool' in nm and use_avg_pool:
-            setattr(m, nm, nn.AvgPool2d(2, 2))
-    m = WithSavedActivations(m, names=layers)
-    return m
+            x = layer(x)
+            x_hat = layer(x_hat)
+            if self.use_gram_matrix:
+                loss = loss + self.mse(gram_matrix(x), gram_matrix(x_hat))
+            else:
+                loss = loss + self.mse(x, x_hat)
 
+        return loss / len(self.layers)
 
-class PerceptualLoss(nn.Module):
-    def __init__(self, l, rescale=False, loss_fn=F.mse_loss):
-        super(PerceptualLoss, self).__init__()
-        self.m = PerceptualNet(l)
-        self.norm = ImageNetInputNorm()
-        self.rescale = rescale
-        self.loss_fn = loss_fn
+    @staticmethod
+    def setup_layers(
+            layers: List[str] = ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'],
+            features: nn.Module = models.vgg16(pretrained=True).features) -> nn.Module:
 
-    def forward(self, x, y):
-        """
-        Return the perceptual loss between batch of images `x` and `y`
-        """
-        if self.rescale:
-            y = F.interpolate(y, size=(224, 224), mode='nearest')
-            x = F.interpolate(x, size=(224, 224), mode='nearest')
+        # create structure to store the needed layers
+        model: nn.Sequential = nn.Sequential()
+        for layer in layers:
+            model.add_module(layer, nn.Sequential())
 
-        _, ref = self.m(self.norm(y), detach=True)
-        _, acts = self.m(self.norm(x), detach=False)
-        loss = 0
-        for k in acts.keys():
-            loss += self.loss_fn(acts[k], ref[k])
-        return loss
+        ix_init = 0
+        if 'relu1_2' in layers:
+            ix_end = 4
+            for x in range(ix_init, ix_end):
+                curr_module = dict(model.named_children())['relu1_2']
+                curr_module.add_module(str(x), features[x])
+            ix_init = ix_end
+        if 'relu2_2' in layers:
+            ix_end = 9
+            for x in range(ix_init, ix_end):
+                curr_module = dict(model.named_children())['relu2_2']
+                curr_module.add_module(str(x), features[x])
+            ix_init = ix_end
+        if 'relu3_3' in layers:
+            ix_end = 16
+            for x in range(ix_init, ix_end):
+                curr_module = dict(model.named_children())['relu3_3']
+                curr_module.add_module(str(x), features[x])
+            ix_init = ix_end
+        if 'relu4_3' in layers:
+            ix_end = 23
+            for x in range(ix_init, ix_end):
+                curr_module = dict(model.named_children())['relu4_3']
+                curr_module.add_module(str(x), features[x])
+
+        return model
 
 
 if __name__ == '__main__':
-    a = torch.randn(4, 3, 256, 256)
-    b = torch.randn(4, 3, 256, 256)
-
-    P_loss = PerceptualLoss(l=['relu2_2'])
-    print(P_loss(a, b))
+    a = torch.randn(8, 3, 256, 256).cuda()
+    b = torch.randn(8, 3, 256, 256).cuda()
+    loss = PerceptualLoss().cuda()
+    print(loss(a, b))
