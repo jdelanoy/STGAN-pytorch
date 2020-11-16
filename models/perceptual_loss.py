@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 
+
 from kornia.filters import spatial_gradient
 
 class GradientL1Loss(nn.Module):
