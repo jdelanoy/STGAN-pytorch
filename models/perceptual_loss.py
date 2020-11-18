@@ -6,6 +6,20 @@ import torch.nn.functional as F
 from torchvision import models
 
 
+from kornia.filters import spatial_gradient
+
+class GradientL1Loss(nn.Module):
+    def forward(self, x1, x2):
+        d_x1 = spatial_gradient(x1)
+        d_x2 = spatial_gradient(x2)
+
+        d_x1_i, d_x1_j = d_x1[..., 0, :, :], d_x1[..., 1, :, :]
+        d_x2_i, d_x2_j = d_x2[..., 0, :, :], d_x2[..., 1, :, :]
+
+        loss = F.l1_loss(d_x1_i, d_x2_i) + F.l1_loss(d_x1_j, d_x2_j)
+
+        return loss
+
 @torch.jit.script
 def gram_matrix(y):
     (b, ch, h, w) = y.size()
@@ -93,7 +107,7 @@ class PerceptualLoss(torch.jit.ScriptModule):
             x = layer(x)
             x_hat = layer(x_hat)
             if self.use_gram_matrix:
-                loss = loss + self.mse(gram_matrix(x), gram_matrix(x_hat))
+                loss = loss + (self.mse(gram_matrix(x), gram_matrix(x_hat))*1e5 + self.mse(x, x_hat))
             else:
                 loss = loss + self.mse(x, x_hat)
 
