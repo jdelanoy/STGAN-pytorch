@@ -84,15 +84,18 @@ class Generator(nn.Module):
 
             if i > 0:
                 self.decoder.append(nn.Sequential(
-                    nn.ConvTranspose2d(dec_in,
-                                        dec_out, 4, 2, 1, bias=False),
+                    nn.UpsamplingNearest2d(scale_factor=2),
+                    nn.Conv2d(dec_in, dec_out, 3, 1, 1),
+                    #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
                     nn.BatchNorm2d(dec_out),
                     nn.ReLU(inplace=True)
                 ))
             else: #last layer
                 if one_more_conv:
                     self.decoder.append(nn.Sequential(
-                        nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1),
+                        #nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
                         nn.BatchNorm2d(conv_dim // 4),
                         nn.ReLU(inplace=True),
                         nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=False),
@@ -100,7 +103,9 @@ class Generator(nn.Module):
                     ))
                 else:
                     self.decoder.append(nn.Sequential(
-                        nn.ConvTranspose2d(dec_in, 3, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, 3, 3, 1, 1),
+                        #nn.ConvTranspose2d(dec_in, 3, 4, 2, 1, bias=False),
                         nn.Tanh()
                     ))
 
