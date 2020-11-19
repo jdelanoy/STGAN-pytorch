@@ -221,8 +221,8 @@ class STGANAgent(object):
         start_batch = self.current_iteration // self.data_loader.train_iterations
         print(self.current_iteration,self.data_loader.train_iterations,start_batch)
         if self.config.rec_loss == 'perceptual':
-            #perceptual_loss = PerceptualLoss(use_gram_matrix=True).to(self.device)
-            perceptual_loss = GradientL1Loss().to(self.device)
+            perceptual_loss = PerceptualLoss(use_gram_matrix=False).to(self.device)
+            #perceptual_loss = GradientL1Loss().to(self.device)
             
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
@@ -352,7 +352,7 @@ class STGANAgent(object):
                         l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
                         scalars['G/loss_rec_l1'] = l1_loss.item()
                         scalars['G/loss_rec_perc'] = perc_loss.item()
-                        g_loss_rec = 2 * perc_loss + l1_loss
+                        g_loss_rec = 0.1 * perc_loss + l1_loss
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
