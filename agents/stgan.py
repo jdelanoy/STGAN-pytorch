@@ -17,6 +17,7 @@ from torchvision import transforms
 import numpy as np
 import cv2
 from sklearn.decomposition import PCA, FastICA
+from loss.loss_provider import LossProvider
 
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator
@@ -223,7 +224,9 @@ class STGANAgent(object):
         if self.config.rec_loss == 'perceptual':
             perceptual_loss = PerceptualLoss(use_gram_matrix=False).to(self.device)
             #perceptual_loss = GradientL1Loss().to(self.device)
-            
+        if self.config.rec_loss == 'watson':
+            provider = LossProvider()
+            watson_loss = provider.get_loss_function('Watson-DFT', colorspace='RGB', pretrained=True, reduction='sum')
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
 
@@ -352,7 +355,13 @@ class STGANAgent(object):
                         l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
                         scalars['G/loss_rec_l1'] = l1_loss.item()
                         scalars['G/loss_rec_perc'] = perc_loss.item()
-                        g_loss_rec = 0.1 * perc_loss + l1_loss
+                        g_loss_rec = self.config.perc_loss_rec_weight * perc_loss + l1_loss
+                    elif self.config.rec_loss == 'watson':
+                        perc_loss = watson_loss(Ia, Ia_hat)
+                        l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
+                        scalars['G/loss_rec_l1'] = l1_loss.item()
+                        scalars['G/loss_rec_perc'] = perc_loss.item()
+                        g_loss_rec = self.config.perc_loss_rec_weight * perc_loss + l1_loss
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
