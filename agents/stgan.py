@@ -317,7 +317,7 @@ class STGANAgent(object):
                     _,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
 
                     for _ in range(self.config.n_critic_ld):
-                        for branch in range(self.config.shortcut_layers+1):
+                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
                             out_att = self.LDs[branch](z[-branch-1])
 
                             #classification loss
@@ -356,7 +356,7 @@ class STGANAgent(object):
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
-                        for branch in range(self.config.shortcut_layers+1):
+                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
                             #print([Ia.shape,a_att_copy.shape])
                             #print(z[-branch-1].shape)
                             #summary(self.G, [Ia.shape[1:],a_att_copy.shape[1:]])
