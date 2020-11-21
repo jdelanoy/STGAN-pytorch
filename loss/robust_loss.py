@@ -1,4 +1,4 @@
-from robust_loss_pytorch.robust_loss_pytorch import AdaptiveImageLossFunction
+from loss.robust_loss_pytorch.robust_loss_pytorch import AdaptiveImageLossFunction
 import torch
 import torch.nn as nn
 
