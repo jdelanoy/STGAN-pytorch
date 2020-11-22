@@ -36,7 +36,7 @@ class ConvGRUCell(nn.Module):
         output = (1-z) * state_hat + z * hidden_info
         return output, new_state
 
-def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNorm2d, bias=False, dropout=0):
+def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNorm2d, bias=False, dropout=0, vgg_like=False):
     layers = []
     in_channels = 3
     out_channels = conv_dim
@@ -45,6 +45,9 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
         if i > 0: #NOTE >= in AttGAN
             enc_layer.append(norm(out_channels, affine=True, track_running_stats=True))
         enc_layer.append(nn.LeakyReLU(0.2, inplace=True))
+        if (vgg_like and i >= 3 and i<n_layers-1):
+            enc_layer += [nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),norm(out_channels, affine=True, track_running_stats=True),nn.LeakyReLU(0.2, inplace=True)]
+            enc_layer += [nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),norm(out_channels, affine=True, track_running_stats=True),nn.LeakyReLU(0.2, inplace=True)]
         if dropout > 0:
             enc_layer.append(nn.Dropout(dropout))
         layers.append(nn.Sequential(*enc_layer))
@@ -62,7 +65,7 @@ class Generator(nn.Module):
         self.n_attr_deconv = n_attr_deconv
 
         ##### build encoder
-        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True) #NOTE bias=false for STGAN
+        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True,vgg_like=True) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
         self.stu = nn.ModuleList()
@@ -156,7 +159,7 @@ class Latent_Discriminator(nn.Module):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3)
+        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=True)
         self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))

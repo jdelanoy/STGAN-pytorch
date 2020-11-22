@@ -226,7 +226,7 @@ class STGANAgent(object):
             #perceptual_loss = GradientL1Loss().to(self.device)
         if self.config.rec_loss == 'watson':
             provider = LossProvider()
-            watson_loss = provider.get_loss_function('Watson-DFT', colorspace='RGB', pretrained=True, reduction='sum')
+            watson_loss = provider.get_loss_function('Watson-DFT', colorspace='RGB', pretrained=True, reduction='sum').to(self.device)
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
 
@@ -357,11 +357,11 @@ class STGANAgent(object):
                         scalars['G/loss_rec_perc'] = perc_loss.item()
                         g_loss_rec = self.config.perc_loss_rec_weight * perc_loss + l1_loss
                     elif self.config.rec_loss == 'watson':
-                        perc_loss = watson_loss(Ia, Ia_hat)
+                        perc_loss = watson_loss(Ia, Ia_hat) * self.config.perc_loss_rec_weight
                         l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
                         scalars['G/loss_rec_l1'] = l1_loss.item()
                         scalars['G/loss_rec_perc'] = perc_loss.item()
-                        g_loss_rec = self.config.perc_loss_rec_weight * perc_loss + l1_loss
+                        g_loss_rec = perc_loss + l1_loss
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
                     if self.config.use_latent_disc:
