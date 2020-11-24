@@ -279,7 +279,7 @@ class DisentangledGenerator(nn.Module):
 
 
 class Latent_Discriminator(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False,tanh=True):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
@@ -287,13 +287,19 @@ class Latent_Discriminator(nn.Module):
         self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
-        self.fc_att = nn.Sequential(
-            nn.Linear(out_conv, fc_dim),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            nn.Linear(fc_dim, attr_dim),
-            nn.Tanh()
-        )
-
+        if (tanh):
+            self.fc_att = nn.Sequential(
+                nn.Linear(out_conv, fc_dim),
+                nn.LeakyReLU(negative_slope=0.2, inplace=True),
+                nn.Linear(fc_dim, attr_dim),
+                nn.Tanh()
+            )
+        else:
+            self.fc_att = nn.Sequential(
+                nn.Linear(out_conv, fc_dim),
+                nn.LeakyReLU(negative_slope=0.2, inplace=True),
+                nn.Linear(fc_dim, attr_dim)
+            )
     def forward(self, x):
         y = self.conv(x)
         y = y.view(y.size()[0], -1)
