@@ -20,7 +20,7 @@ from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
 
 from datasets import *
-from models.stgan import Generator, Discriminator, Latent_Discriminator
+from models.stgan import Generator, Discriminator, Latent_Discriminator, Classifier
 #from models.vggPerceptualLoss import VGGPerceptualLoss
 from models.perceptual_loss import PerceptualLoss, GradientL1Loss
 from utils.misc import print_cuda_statistics
@@ -74,6 +74,9 @@ class STGANAgent(object):
                 'optimizer': optimizer.state_dict(),
             }
             torch.save(state, os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.current_iteration)))
+        if self.config.mode == "pretrain":
+            [save_one_model(self.Cs[i],self.optimizer_Cs[i],'C'+str(i)) for i in range(2)]
+            return
         save_one_model(self.G,self.optimizer_G,'G')
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             save_one_model(self.D,self.optimizer_D,'D')
@@ -170,10 +173,12 @@ class STGANAgent(object):
         save_image(self.denorm(x_concat.data.cpu()),path,
                     nrow=1, padding=0)
     def run(self):
-        assert self.config.mode in ['train', 'test']
+        assert self.config.mode in ['train', 'test','pretrain']
         try:
             if self.config.mode == 'train':
                 self.train()
+            elif self.config.mode == 'pretrain':
+                self.pretrain_classif()
             else:
                 #self.test_pca()
                 self.test()
@@ -188,6 +193,67 @@ class STGANAgent(object):
         finally:
             self.finalize()
 
+    def pretrain_classif(self):
+        ############### create networks and optimizers
+        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim, n_class, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers) for n_class in [13,6]] #first is geom, second is illum
+        #print(self.Cs)
+        #self.illum_C = Classifier(self.config.image_size, self.config.max_conv_dim, 6, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
+        self.optimizer_Cs = [optim.Adam(C.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2]) for C in self.Cs]
+        self.lr_scheduler_Cs = [optim.lr_scheduler.StepLR(optimizer_C, step_size=self.config.lr_decay_iters, gamma=0.1) for optimizer_C in self.optimizer_Cs]
+        #self.optimizer_illum_C = optim.Adam(self.illum_C.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
+        #self.lr_scheduler_illum_C = optim.lr_scheduler.StepLR(self.optimizer_illum_C, step_size=self.config.lr_decay_iters, gamma=0.1)
+
+        start_time = time.time()
+        start_batch = self.current_iteration // self.data_loader.train_iterations
+        print(self.current_iteration,self.data_loader.train_iterations,start_batch)
+        for batch in range(start_batch, self.config.max_epoch):
+            for it in range(self.data_loader.train_iterations):
+                # ============================1. Preprocess input data=============================== #
+                # fetch real images and labels
+                try:
+                    Ia, a_att, labels = next(data_iter)
+                except:
+                    data_iter = iter(self.data_loader.train_loader)
+                    Ia, a_att, labels = next(data_iter)
+
+                Ia = Ia.to(self.device)         # input images
+                #labels = labels .to(self.device)
+                scalars = {}
+
+                # ============================2. Pretrain shape/illum classif======================== #
+                for i,C in enumerate(self.Cs):
+                    C.train()
+                    _,pred = C(Ia)
+                    loss = F.cross_entropy(pred,labels[i+1].to(self.device))
+                    # backward and optimize
+                    self.optimizer_Cs[i].zero_grad()
+                    loss.backward(retain_graph=True)
+                    self.optimizer_Cs[i].step()
+                    
+                    # summarize
+                    scalars['C/loss{}'.format(i)] = loss.item()
+                # =================================================================================== #
+                #                                 4. Miscellaneous                                    #
+                # =================================================================================== #''
+                [lr_scheduler_C.step() for lr_scheduler_C in self.lr_scheduler_Cs]
+
+                # print summary on terminal and on tensorboard
+                if self.current_iteration % self.config.summary_step == 0:
+                    et = time.time() - start_time
+                    et = str(datetime.timedelta(seconds=et))[:-7]
+                    print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
+                    for tag, value in scalars.items():
+                        self.writer.add_scalar(tag, value, self.current_iteration)
+
+                # # sample
+                # if (self.current_iteration) % self.config.sample_step == 0:
+                #     self.G.eval()
+                #     with torch.no_grad():
+                #         self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
+
+                # save checkpoint
+                if self.current_iteration % self.config.checkpoint_step == 0:
+                    self.save_checkpoint()
 
     def train(self):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
@@ -205,9 +271,10 @@ class STGANAgent(object):
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
             self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
             self.LD = [nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))  for self.LD in self.LDs]
+
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
-        Ia_sample, a_sample = next(val_iter)
+        Ia_sample, a_sample, labels_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
         b_samples.insert(0, a_sample)  # reconstruction
@@ -217,7 +284,6 @@ class STGANAgent(object):
         self.ld_lr = self.lr_scheduler_LDs[0].get_lr()[0]
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
-
 
         start_batch = self.current_iteration // self.data_loader.train_iterations
         print(self.current_iteration,self.data_loader.train_iterations,start_batch)
@@ -239,7 +305,7 @@ class STGANAgent(object):
                     Ia, a_att = next(data_iter)
                 except:
                     data_iter = iter(self.data_loader.train_loader)
-                    Ia, a_att = next(data_iter)
+                    Ia, a_att, labels = next(data_iter)
 
                 # generate target domain labels randomly
                 b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
@@ -256,6 +322,8 @@ class STGANAgent(object):
                 attr_diff = b_att_copy - a_att_copy
                 attr_diff = attr_diff if self.config.use_attr_diff else b_att_copy
                 scalars = {}
+
+
                 # =================================================================================== #
                 #                             2. Train the discriminator                              #
                 # =================================================================================== #
@@ -310,7 +378,7 @@ class STGANAgent(object):
 
 
                 # =================================================================================== #
-                #                         3. Train the latent discriminator                           #
+                #                         3. Train the latent discriminator (FaderNet)                #
                 # =================================================================================== #
                 if self.config.use_latent_disc:
                     self.G.eval()

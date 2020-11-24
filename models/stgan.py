@@ -218,6 +218,31 @@ class Discriminator(nn.Module):
         return logit_adv, logit_att
 
 
+class Classifier(nn.Module):
+    def __init__(self, image_size=128, max_dim=512, n_classes=10, conv_dim=64, fc_dim=1024, n_layers=5, vgg_like=False):
+        super(Classifier, self).__init__()
+        layers = []
+        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm=nn.InstanceNorm2d,bias=True, vgg_like=vgg_like)
+        self.conv = nn.Sequential(*layers)
+
+        feature_size = image_size // 2**n_layers
+        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
+
+        self.fc_att = nn.Sequential(
+            nn.Linear(out_conv * feature_size ** 2, fc_dim),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Linear(fc_dim, n_classes)
+            #nn.Tanh()
+        )
+
+    def forward(self, x):
+        y = self.conv(x)
+        y = y.view(y.size()[0], -1)
+        logit_att = self.fc_att(y)
+        return y,logit_att
+
+
+
 if __name__ == '__main__':
     gen = Generator(5, conv_dim=32, n_layers=6, shortcut_layers=0, max_dim=512, use_stu=False, one_more_conv=False)
 
