@@ -56,7 +56,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
     return layers
 
 class Generator(nn.Module):
-    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1):
+    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False):
         super(Generator, self).__init__()
         self.n_attrs = attr_dim
         self.n_layers = n_layers
@@ -65,7 +65,7 @@ class Generator(nn.Module):
         self.n_attr_deconv = n_attr_deconv
 
         ##### build encoder
-        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True,vgg_like=True) #NOTE bias=false for STGAN
+        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True,vgg_like=vgg_like) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
         self.stu = nn.ModuleList()
@@ -86,13 +86,25 @@ class Generator(nn.Module):
             #print(i,dec_out,dec_in,enc_size)
 
             if i > 0:
-                self.decoder.append(nn.Sequential(
-                    nn.UpsamplingNearest2d(scale_factor=2),
-                    nn.Conv2d(dec_in, dec_out, 3, 1, 1),
-                    #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
-                    nn.BatchNorm2d(dec_out),
-                    nn.ReLU(inplace=True)
-                ))
+                if vgg_like and i > 3:
+                    self.decoder.append(nn.Sequential(
+                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True),
+                        nn.Conv2d(dec_out, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True)
+                    ))
+                else:
+                    self.decoder.append(nn.Sequential(
+                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True)
+                    ))
             else: #last layer
                 if one_more_conv:
                     self.decoder.append(nn.Sequential(
@@ -155,11 +167,11 @@ class Generator(nn.Module):
         return out,encoded
 
 class Latent_Discriminator(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=True)
+        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=vgg_like)
         self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
