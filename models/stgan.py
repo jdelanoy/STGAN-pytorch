@@ -41,6 +41,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
     in_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
+        #print(i, in_channels,out_channels)
         enc_layer=[nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias)]
         if i > 0: #NOTE >= in AttGAN
             enc_layer.append(norm(out_channels, affine=True, track_running_stats=True))
@@ -166,6 +167,117 @@ class Generator(nn.Module):
             out = dec_layer(out)
         return out,encoded
 
+
+class DisentangledGenerator(nn.Module):
+    def __init__(self, attr_dim, n_embeddings, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False):
+        super(DisentangledGenerator, self).__init__()
+        self.n_attrs = attr_dim
+        self.n_layers = n_layers
+        self.shortcut_layers = min(shortcut_layers, n_layers - 1)
+        self.use_stu = use_stu
+        self.n_attr_deconv = n_attr_deconv
+
+        ##### build encoder
+        enc_layers=get_encoder_layers(conv_dim>>1,n_layers,max_dim>>1,bias=True,vgg_like=vgg_like) #NOTE bias=false for STGAN
+        self.encoder = nn.ModuleList(enc_layers)
+
+        self.stu = nn.ModuleList()
+        ##### build decoder
+        self.decoder = nn.ModuleList()
+        for i in reversed(range(self.n_layers)):
+            #size if inputs/outputs
+            dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
+            dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
+            enc_size = min(max_dim,conv_dim * 2 ** (i))>>1
+
+            #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+            if i == self.n_layers-1: dec_in = enc_size
+            if i >= self.n_layers - 1 - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
+                dec_in = dec_in + n_embeddings * (enc_size)
+                if use_stu:
+                    self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
+            print(i,dec_in,dec_out,enc_size)
+
+            if i > 0:
+                if vgg_like and i > 3:
+                    self.decoder.append(nn.Sequential(
+                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True),
+                        nn.Conv2d(dec_out, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True)
+                    ))
+                else:
+                    self.decoder.append(nn.Sequential(
+                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
+                        nn.BatchNorm2d(dec_out),
+                        nn.ReLU(inplace=True)
+                    ))
+            else: #last layer
+                if one_more_conv:
+                    self.decoder.append(nn.Sequential(
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1),
+                        #nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
+                        nn.BatchNorm2d(conv_dim // 4),
+                        nn.ReLU(inplace=True),
+                        nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=False),
+                        nn.Tanh()
+                    ))
+                else:
+                    self.decoder.append(nn.Sequential(
+                        nn.UpsamplingNearest2d(scale_factor=2),
+                        nn.Conv2d(dec_in, 3, 3, 1, 1),
+                        #nn.ConvTranspose2d(dec_in, 3, 4, 2, 1, bias=False),
+                        nn.Tanh()
+                    ))
+
+    def decode(self, z, a):
+        #first decoder step
+        out = z
+        a = a.view((out.size(0), self.n_attrs, 1, 1))
+        for i, dec_layer in enumerate(self.decoder):
+            if i < self.n_attr_deconv:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                out = torch.cat([out, attr], dim=1)
+            out = dec_layer(out)
+        return out
+
+    def forward(self, x, a, encodings):
+        # propagate encoder layers
+        encoded = []
+        x_ = x
+        for layer in self.encoder:
+            x_ = layer(x_)
+            encoded.append(x_)
+
+        #first decoder step
+        out = encoded[-1]
+        stu_state = encoded[-1]
+        a = a.view((out.size(0), self.n_attrs, 1, 1))
+
+        for i, dec_layer in enumerate(self.decoder):
+            if i < self.n_attr_deconv:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                out = torch.cat([out, attr], dim=1)
+            if  i <= self.shortcut_layers:
+                #do shortcut connection
+                for enc in encodings:
+                    out = torch.cat([out, enc[self.n_layers-1-i]], dim=1)
+            out = dec_layer(out)
+        return out,encoded
+
+
 class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False):
         super(Latent_Discriminator, self).__init__()
@@ -236,10 +348,15 @@ class Classifier(nn.Module):
         )
 
     def forward(self, x):
-        y = self.conv(x)
+        encoded = []
+        y = x
+        for layer in self.conv:
+            y = layer(y)
+            encoded.append(y)
+        #y = self.conv(x)
         y = y.view(y.size()[0], -1)
         logit_att = self.fc_att(y)
-        return y,logit_att
+        return encoded,logit_att
 
 
 

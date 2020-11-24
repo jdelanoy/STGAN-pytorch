@@ -20,7 +20,7 @@ from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
 
 from datasets import *
-from models.stgan import Generator, Discriminator, Latent_Discriminator, Classifier
+from models.stgan import Generator, Discriminator, Latent_Discriminator, Classifier, DisentangledGenerator
 #from models.vggPerceptualLoss import VGGPerceptualLoss
 from models.perceptual_loss import PerceptualLoss, GradientL1Loss
 from utils.misc import print_cuda_statistics
@@ -41,9 +41,10 @@ class STGANAgent(object):
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
         
-        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
+        self.G = DisentangledGenerator(len(self.config.attrs), 2,self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
-        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
+        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, len(self.config.attrs), self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
+        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.d_layers) for n_class in [13,6]] 
         print(self.G)
         if self.config.use_image_disc or self.config.use_classifier_generator:
             print(self.D)
@@ -84,18 +85,19 @@ class STGANAgent(object):
             [save_one_model(self.LDs[branch],self.optimizer_LDs[branch],'LD'+str(branch)) for branch in range(self.config.shortcut_layers+1)]
 
     def load_checkpoint(self):
+        def load_one_model(model,optimizer,name, iter=self.config.checkpoint):
+            G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,iter)),map_location=self.device)
+            G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
+            model.load_state_dict(G_to_load)
+            model.to(self.device)
+            if optimizer != None:
+                optimizer.load_state_dict(G_checkpoint['optimizer'])
+        [load_one_model(self.Cs[i],None,'C'+str(i),30000) for i in range(2)]
         if self.config.checkpoint is None:
             self.G.to(self.device)
             self.D.to(self.device)
             [self.LD.to(self.device) for self.LD in self.LDs]
             return
-        def load_one_model(model,optimizer,name):
-            G_checkpoint = torch.load(os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.config.checkpoint)),map_location=torch.device('cpu'))
-            G_to_load = {k.replace('module.', ''): v for k, v in G_checkpoint['state_dict'].items()}
-            model.load_state_dict(G_to_load)
-            model.to(self.device)
-            if self.config.mode == 'train':
-                optimizer.load_state_dict(G_checkpoint['optimizer'])
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
@@ -195,8 +197,9 @@ class STGANAgent(object):
 
     def pretrain_classif(self):
         ############### create networks and optimizers
-        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim, n_class, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers).to(self.device) for n_class in [13,6]] #first is geom, second is illum
-        #print(self.Cs)
+        #first is geom, second is illum
+        [C.to(self.device) for C in self.Cs]
+        print(self.Cs)
         #self.illum_C = Classifier(self.config.image_size, self.config.max_conv_dim, 6, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.optimizer_Cs = [optim.Adam(C.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2]) for C in self.Cs]
         self.lr_scheduler_Cs = [optim.lr_scheduler.StepLR(optimizer_C, step_size=self.config.lr_decay_iters, gamma=0.1) for optimizer_C in self.optimizer_Cs]
@@ -261,7 +264,7 @@ class STGANAgent(object):
         self.optimizer_G = optim.Adam(self.G.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_D = optim.Adam(self.D.parameters(), self.config.d_lr, [self.config.beta1, self.config.beta2])
         self.optimizer_LDs = [optim.Adam(self.LD.parameters(), self.config.ld_lr, [self.config.beta1, self.config.beta2]) for self.LD in self.LDs]
-        self.load_checkpoint()
+        self.load_checkpoint() #load checkpoint if needed and LOAD CLASSIFIERS
 
         last_epoch=-1 if self.config.checkpoint == None else self.config.checkpoint
         self.lr_scheduler_G = optim.lr_scheduler.StepLR(self.optimizer_G, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
