@@ -195,7 +195,7 @@ class STGANAgent(object):
 
     def pretrain_classif(self):
         ############### create networks and optimizers
-        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim, n_class, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers) for n_class in [13,6]] #first is geom, second is illum
+        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim, n_class, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers).to(self.device) for n_class in [13,6]] #first is geom, second is illum
         #print(self.Cs)
         #self.illum_C = Classifier(self.config.image_size, self.config.max_conv_dim, 6, self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.optimizer_Cs = [optim.Adam(C.parameters(), self.config.g_lr, [self.config.beta1, self.config.beta2]) for C in self.Cs]
@@ -232,6 +232,8 @@ class STGANAgent(object):
                     
                     # summarize
                     scalars['C/loss{}'.format(i)] = loss.item()
+                    
+                self.current_iteration += 1
                 # =================================================================================== #
                 #                                 4. Miscellaneous                                    #
                 # =================================================================================== #''
