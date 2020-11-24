@@ -70,6 +70,10 @@ class STGANAgent(object):
 
         self.writer = SummaryWriter(log_dir=self.config.summary_dir)
 
+
+
+    ################################################################
+    ###################### SAVE/lOAD ###############################
     def save_checkpoint(self):
         def save_one_model(model,optimizer,name):
             state = {
@@ -95,7 +99,7 @@ class STGANAgent(object):
             model.to(self.device)
             if optimizer != None:
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
-        [load_one_model(self.Cs[i],None,'C'+str(i),30000) for i in range(2)]
+        #[load_one_model(self.Cs[i],None,'C'+str(i),30000) for i in range(2)]
         if self.config.checkpoint is None:
             self.G.to(self.device)
             self.D.to(self.device)
@@ -110,53 +114,41 @@ class STGANAgent(object):
 
         self.current_iteration = self.config.checkpoint
 
+
+    ################################################################
+    ################### OPTIM UTILITIES ############################
     def build_optimizer(self,model,lr):
         return optim.Adam(model.parameters(), lr, [self.config.beta1, self.config.beta2])
     def build_scheduler(self,optimizer):
         last_epoch=-1 if self.config.checkpoint == None else self.config.checkpoint
         return optim.lr_scheduler.StepLR(optimizer, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
-    def optimize(optimizer,loss):
+    def optimize(self,optimizer,loss):
         optimizer.zero_grad()
         loss.backward(retain_graph=True)
         optimizer.step()
 
-    def denorm(self, x):
-        #get from [-1,1] to [0,1]
-        out = (x + 1) / 2
-        return out.clamp_(0, 1)
 
-    def create_labels(self, c_org, selected_attrs=None,max_val=5.0):
-        """Generate target domain labels for debugging and testing: linearly sample attribute"""
 
-        c_trg_list = []
-        for i in range(len(selected_attrs)):
-            alphas = np.linspace(-max_val, max_val, 10)
-            #alphas = np.linspace(5.0, 5.0, 10)
-            #alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
-            for alpha in alphas:
-                c_trg = c_org.clone()
-                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
-                c_trg_list.append(c_trg.to(self.device))
-        return c_trg_list
 
+    ################################################################
+    ################### LOSSES UTILITIES ###########################
     def regression_loss(self, logit, target):
         return F.l1_loss(logit,target)/ logit.size(0)
         #return F.binary_cross_entropy_with_logits(logit, target, reduction='sum') / logit.size(0)
     def classification_loss(self, logit, target):
-        return F.cross_entropy(logit,target) F.l1_loss(logit,target) #/ logit.size(0)
-    def reconstruction_loss(self, y, x, scalars):
+        return F.cross_entropy(logit,target) 
+    def reconstruction_loss(self, Ia, Ia_hat, scalars):
         if self.config.rec_loss == 'l1':
             g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
         elif self.config.rec_loss == 'l2':
             g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
         elif self.config.rec_loss == 'perceptual' or self.config.rec_loss == 'watson':
-            perc_loss = perceptual_loss(Ia, Ia_hat) * self.config.perc_loss_rec_weight
+            perc_loss = self.perceptual_loss(Ia, Ia_hat) * self.config.perc_loss_rec_weight
             l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
             scalars['G/loss_rec_l1'] = l1_loss.item()
             scalars['G/loss_rec_perc'] = perc_loss.item()
             g_loss_rec = perc_loss + l1_loss
         return g_loss_rec
-
     def gradient_penalty(self, y, x):
         """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
         weight = torch.ones(y.size()).to(self.device)
@@ -172,6 +164,26 @@ class STGANAgent(object):
         return torch.mean((dydx_l2norm-1)**2)
 
 
+
+    ################################################################
+    ##################### EVAL UTILITIES ###########################
+    def denorm(self, x):
+        #get from [-1,1] to [0,1]
+        out = (x + 1) / 2
+        return out.clamp_(0, 1)
+
+    def create_labels(self, c_org, selected_attrs=None,max_val=5.0):
+        """Generate target domain labels for debugging and testing: linearly sample attribute"""
+        c_trg_list = []
+        for i in range(len(selected_attrs)):
+            alphas = np.linspace(-max_val, max_val, 10)
+            #alphas = np.linspace(5.0, 5.0, 10)
+            #alphas = [torch.FloatTensor([alpha]) for alpha in alphas]
+            for alpha in alphas:
+                c_trg = c_org.clone()
+                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
+                c_trg_list.append(c_trg.to(self.device))
+        return c_trg_list
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path,writer=False):
         x_sample = x_sample.to(self.device)
         x_fake_list = [x_sample]
@@ -203,6 +215,9 @@ class STGANAgent(object):
                     nrow=1, padding=0)
 
 
+
+    ################################################################
+    ##################### MAIN FUNCTIONS ###########################
     def run(self):
         assert self.config.mode in ['train', 'test','pretrain']
         try:
@@ -224,13 +239,15 @@ class STGANAgent(object):
         finally:
             self.finalize()
 
+
+
     def pretrain_classif(self):
         ############### create networks and optimizers
         #first is geom, second is illum
         [C.to(self.device) for C in self.Cs]
         print(self.Cs)
-        self.optimizer_Cs = [self.build_optimizer(C.parameters(), self.config.g_lr) for C in self.Cs]
-        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C for optimizer_C in self.optimizer_Cs]
+        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
+        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C) for optimizer_C in self.optimizer_Cs]
 
         start_time = time.time()
         start_batch = self.current_iteration // self.data_loader.train_iterations
@@ -244,7 +261,6 @@ class STGANAgent(object):
                 except:
                     data_iter = iter(self.data_loader.train_loader)
                     Ia, a_att, labels = next(data_iter)
-
                 Ia = Ia.to(self.device)         # input images
                 #labels = labels .to(self.device)
                 scalars = {}
@@ -259,12 +275,9 @@ class STGANAgent(object):
                     # summarize
                     scalars['C/loss{}'.format(i)] = loss.item()
                     
+                # ================================3. Miscellaneous=================================== #
                 self.current_iteration += 1
-                # =================================================================================== #
-                #                                 4. Miscellaneous                                    #
-                # =================================================================================== #''
                 [lr_scheduler_C.step() for lr_scheduler_C in self.lr_scheduler_Cs]
-
                 # print summary on terminal and on tensorboard
                 if self.current_iteration % self.config.summary_step == 0:
                     et = time.time() - start_time
@@ -272,8 +285,6 @@ class STGANAgent(object):
                     print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
                     for tag, value in scalars.items():
                         self.writer.add_scalar(tag, value, self.current_iteration)
-
-
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
@@ -281,10 +292,10 @@ class STGANAgent(object):
 
 
     def train(self):
-        self.optimizer_G = self.build_optimizer(self.G.parameters(), self.config.g_lr)
-        self.optimizer_D = self.build_optimizer(self.D.parameters(), self.config.d_lr)
-        self.optimizer_LDs = [self.build_optimizer(LD.parameters(), self.config.ld_lr) for LD in self.LDs]
-        self.optimizer_Adv_Cs = [self.build_optimizer(Adv_C.parameters(), self.config.Adv_C_lr) for Adv_C in self.Adv_Cs]
+        self.optimizer_G = self.build_optimizer(self.G, self.config.g_lr)
+        self.optimizer_D = self.build_optimizer(self.D, self.config.d_lr)
+        self.optimizer_LDs = [self.build_optimizer(LD, self.config.ld_lr) for LD in self.LDs]
+        self.optimizer_Adv_Cs = [self.build_optimizer(Adv_C, self.config.ld_lr) for Adv_C in self.Adv_Cs]
         self.load_checkpoint() #load checkpoint if needed and LOAD CLASSIFIERS
 
         self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
@@ -326,7 +337,6 @@ class STGANAgent(object):
                 # =================================================================================== #
                 #                             1. Preprocess input data                                #
                 # =================================================================================== #
-
                 # fetch real images and labels
                 try:
                     Ia, a_att = next(data_iter)
@@ -351,9 +361,9 @@ class STGANAgent(object):
 
                 #get features from pretrained classifiers and image reconstruction
                 encodings = [C(Ia)[0] for C in self.Cs]
+                #print (encodings)
 #                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
                 Ia_hat,z = self.G(Ia, a_att- a_att if self.config.use_attr_diff else a_att,encodings)
-                print (encodings)
 
                 scalars = {}
 
@@ -467,7 +477,7 @@ class STGANAgent(object):
                     for i,Adv_C in enumerate(self.Adv_Cs):
                         pred = Adv_C(z[-1])
                         g_adv_c_loss = -self.classification_loss(pred,labels[i+1].to(self.device))
-                        g_loss += self.config.lambda_g_adv_c * g_loss_latent
+                        g_loss += self.config.lambda_g_adv_c * g_adv_c_loss
                         scalars['F/loss_adv_c{}'.format(i)] = g_adv_c_loss.item()
 
                     #latent discriminator for attribtues

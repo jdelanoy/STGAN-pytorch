@@ -191,8 +191,8 @@ class DisentangledGenerator(nn.Module):
             enc_size = min(max_dim,conv_dim * 2 ** (i))>>1
 
             #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
             if i == self.n_layers-1: dec_in = enc_size
+            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
             if i >= self.n_layers - 1 - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
                 dec_in = dec_in + n_embeddings * (enc_size)
                 if use_stu:
@@ -265,6 +265,7 @@ class DisentangledGenerator(nn.Module):
         a = a.view((out.size(0), self.n_attrs, 1, 1))
 
         for i, dec_layer in enumerate(self.decoder):
+            #print(i)
             if i < self.n_attr_deconv:
                 #concatenate attribute
                 size = out.size(2)
@@ -273,7 +274,9 @@ class DisentangledGenerator(nn.Module):
             if  i <= self.shortcut_layers:
                 #do shortcut connection
                 for enc in encodings:
+                    #print(out.shape,enc[self.n_layers-1-i].shape)
                     out = torch.cat([out, enc[self.n_layers-1-i]], dim=1)
+                    #print(out.shape)
             out = dec_layer(out)
         return out,encoded
 
