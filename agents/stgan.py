@@ -41,11 +41,11 @@ class STGANAgent(object):
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
         
-        self.G = DisentangledGenerator(len(self.config.attrs), 2,self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
+        self.G = DisentangledGenerator(len(self.config.attrs), 2,self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv, vgg_like=True)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, len(self.config.attrs), self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
         self.Adv_Cs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, 0,tanh=False) for n_class in [13,6]] 
-        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.d_layers) for n_class in [13,6]] 
+        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.d_layers, vgg_like=True) for n_class in [13,6]] 
         print(self.G)
         print(self.Adv_Cs)
         if self.config.use_image_disc or self.config.use_classifier_generator:
@@ -121,8 +121,8 @@ class STGANAgent(object):
     def build_optimizer(self,model,lr):
         model=model.to(self.device)
         return optim.Adam(model.parameters(), lr, [self.config.beta1, self.config.beta2])
-    def build_scheduler(self,optimizer):
-        last_epoch=-1 if self.config.checkpoint == None else self.config.checkpoint
+    def build_scheduler(self,optimizer,not_load=False):
+        last_epoch=-1 if (self.config.checkpoint == None or not_load) else self.config.checkpoint
         return optim.lr_scheduler.StepLR(optimizer, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
     def optimize(self,optimizer,loss):
         optimizer.zero_grad()
@@ -229,9 +229,9 @@ class STGANAgent(object):
                 self.pretrain_classif()
             else:
                 #self.test_pca()
-                self.test()
-                if self.config.use_classifier_generator:
-                    self.test_classif()
+                #self.test()
+                self.test_disentangle()
+                #self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
         except Exception as e:
@@ -301,9 +301,13 @@ class STGANAgent(object):
         self.load_checkpoint() #load checkpoint if needed and LOAD CLASSIFIERS
 
         self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
-        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D)
-        self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD) for optimizer_LD in self.optimizer_LDs]
+        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.config.use_image_disc or self.config.use_classifier_generator))
+        self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
         self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
+
+        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
+        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
+
 
         if self.cuda and self.config.ngpu > 1:
             self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
@@ -360,15 +364,22 @@ class STGANAgent(object):
 
                 attr_diff = b_att - a_att #b_att_copy - a_att_copy
                 attr_diff = attr_diff if self.config.use_attr_diff else b_att
+                scalars = {}
+
+
+                #go through C and G and backward reconstrution loss + classif loss through C (only after X iterations)
 
                 self.G.train()
+                [C.train() for C in self.Cs]
                 #get features from pretrained classifiers and image reconstruction
-                encodings = [C(Ia)[0] for C in self.Cs]
+                through_C = [C(Ia) for C in self.Cs]
+                encodings = [net[0] for net in through_C]
+                preds_classif = [net[1] for net in through_C]
                 #print (encodings)
 #                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
                 Ia_hat,z = self.G(Ia, a_att- a_att if self.config.use_attr_diff else a_att,encodings)
 
-                scalars = {}
+
 
                 # =================================================================================== #
                 #                             2. Train the discriminator                              #
@@ -506,8 +517,23 @@ class STGANAgent(object):
                             scalars['G/loss_att'] = g_loss_att.item()
                             scalars['G/lambda_new'] = lambda_new
 
+                    for i,C in enumerate(self.Cs):
+                        _,pred = C(Ia)
+                        classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
+                        #g_loss += classif_loss
+                        # backward and optimize
+                        #self.optimize(self.optimizer_Cs[i],loss)
+                        # summarize
+                        scalars['C/loss{}'.format(i)] = classif_loss.item()
+
+                    self.optimizer_G.zero_grad()
+                    [optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
+                    g_loss.backward(retain_graph=True)
+                    self.optimizer_G.step()
+                    [optimizer_C.step() for optimizer_C in self.optimizer_Cs]
+
                     # backward and optimize
-                    self.optimize(self.optimizer_G,g_loss)
+                    #self.optimize(self.optimizer_G,g_loss)
                     # summarize
                     scalars['G/loss_rec'] = g_loss_rec.item()
                     scalars['G/loss'] = g_loss.item()
@@ -547,42 +573,57 @@ class STGANAgent(object):
 
     def test_classif(self):
         self.load_checkpoint()
-        self.D.to(self.device)
+        [C.eval() for C in self.Cs]
 
         tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
                           desc='Testing at checkpoint {}'.format(self.config.checkpoint))
 
         self.G.eval()
         self.D.eval()
-        all_figs=[]; ax=[]
+        
+        label_names={'shape':['blob', 'bunny', 'dragon', 'dragon2', 'einstein', 'einstein2', 'lucy', 'sphere', 'statue', 'suzanne', 'teapot', 'waterpot', 'zenith'],'illum':['doge2', 'ennis', 'glacier', 'grace', 'pisa', 'uffizi']}
+
+        colors=['black','red','cyan','blue','green','yellow','grey','white', 'orange','blue','magenta','red', 'yellow']
         with torch.no_grad():
-            for i in range(len(self.config.attrs)):
-                all_figs.append([plt.figure(figsize=(8,12)),plt.figure(figsize=(8,12))])
-                ax.append([all_figs[i][0].gca(),all_figs[i][1].gca()])
-            for i, (x_real, c_org) in enumerate(tqdm_loader):
-                x_real = x_real.to(self.device)
-                out_disc, out_att = self.D(x_real)
-                for j in range(x_real.shape[0]):
-                    for att in range(len(self.config.attrs)):
-                        _imscatter(c_org[j][att].cpu(), np.random.random(),
-                                image=x_real[j].cpu(),
-                                color='white',
-                                zoom=0.1,
-                                ax=ax[att][0])
-                        
-                        _imscatter(out_att[j][att].cpu(), np.random.random(),
-                                image=x_real[j].cpu(),
-                                color='white',
-                                zoom=0.1,
-                                ax=ax[att][1])
-                        #print(out_att[j][att])
-            for i in range(len(self.config.attrs)):
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,"0",self.config.checkpoint))
-                print(result_path)
-                all_figs[i][0].savefig(result_path, dpi=300, bbox_inches='tight')
-                #all_figs[i][0].show()
-                result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(i,1,self.config.checkpoint))
-                all_figs[i][1].savefig(result_path, dpi=300, bbox_inches='tight')
+            #do it for shape and for mat
+            for id_att,att in enumerate(label_names):
+                all_figs=[]; ax=[]
+                n_class = len(label_names[att])
+                #print(id_att,att,n_class)
+                print("testing for attribute",att,"with n_class=",n_class)
+                for i in range(n_class):
+                    all_figs.append(plt.figure(figsize=(12,12)))
+                    ax.append(all_figs[i].gca())
+                for i, (x_real, c_org,labels) in enumerate(tqdm_loader):
+                    x_real = x_real.to(self.device)
+                    _,pred = self.Cs[id_att](x_real)
+                    pred = F.softmax(pred)
+                    #print(labels)
+                    for j in range(x_real.shape[0]): #for each image
+                        #print(colors[labels[id_att+1][j]],labels[id_att+1][j], label_names[att][labels[id_att+1][j]],filen[j])
+                        for label in range(n_class):
+                            #print(label,pred[j][label])
+                            #print(labels[j][id_att+1])
+                            _imscatter(pred[j][label].cpu()+(np.random.random()/10-0.05), np.random.random(),
+                                    image=x_real[j].cpu(),
+                                    color=colors[labels[id_att+1][j]], #TODO put color depending on label
+                                    zoom=0.1,
+                                    ax=ax[label])
+                            
+                            # _imscatter(out_att[j][label].cpu(), np.random.random(),
+                            #         image=x_real[j].cpu(),
+                            #         color='white',
+                            #         zoom=0.1,
+                            #         ax=ax[att][1])
+                            #print(out_att[j][att])
+                for label in range(n_class):
+                    result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(att,label_names[att][label],self.config.checkpoint))
+                    #print(result_path)
+                    all_figs[label].savefig(result_path, dpi=300, bbox_inches='tight')
+
+                    #all_figs[i][0].show()
+                    # result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(label,1,self.config.checkpoint))
+                    # all_figs[i][1].savefig(result_path, dpi=300, bbox_inches='tight')
 
     def test(self):
         self.load_checkpoint()
@@ -600,6 +641,73 @@ class STGANAgent(object):
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=5.0)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
+
+    def test_disentangle(self):
+        self.load_checkpoint()
+        self.G.to(self.device)
+
+        tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
+                          desc='Testing at checkpoint {}'.format(self.config.checkpoint))
+
+        self.G.eval()
+        [C.eval() for C in self.Cs]
+        with torch.no_grad():
+            for batch, (x_real, a_att, labels) in enumerate(tqdm_loader):
+                x_real=x_real.to(self.device)
+                #encode all the batch
+                #through the attribute branches
+                encodings = [C(x_real)[0] for C in self.Cs]
+                #through main encoder
+                z = self.G.encode(x_real)
+                #print(z[-1].shape)
+                encodings.append(z)
+                #for shape
+                for label in range(len(encodings)):
+                    #label=0
+                    x_fake_list = [torch.cat((x_real[0].unsqueeze(0),x_real),dim=0)]
+                    #each column: all share the same shape embedding
+                    for c in range(x_real.shape[0]):
+                        #print(c)
+                        encodings_copy = [[enc.clone().to(self.device) for enc in encs] for encs in encodings]
+                        # print(len(encodings))
+                        # print(len(encodings[0]))
+                        common_features=encodings_copy[label]
+                        #change encoding for all images
+                        #encodings[0,:]=common_features
+                        for layer in range(len(common_features)):
+                            for i in range(x_real.shape[0]):
+                                encodings_copy[label][layer][i]=common_features[layer][c]
+                        #print(len(encodings_copy),len(encodings_copy[-1]),encodings_copy[-1][-1].shape)
+                        fake_image=self.G.decode_from_disentangled(encodings_copy[-1][-1],a_att- a_att if self.config.use_attr_diff else a_att,encodings_copy[:-1])
+                        #print(torch.min(fake_image),torch.max(fake_image)) 
+                        fake_image=torch.cat((x_real[c].unsqueeze(0),fake_image),dim=0)
+                        
+                        x_fake_list.append(fake_image)
+                    x_concat = torch.cat(x_fake_list, dim=3)
+                    path=os.path.join(self.config.result_dir, 'sample_disentangle_{}_{}_{}.jpg'.format(batch + 1,label,self.config.checkpoint))
+                    save_image(self.denorm(x_concat.data.cpu()),path,
+                                nrow=1, padding=0)
+
+                #self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
+
+# , a_att- a_att if self.config.use_attr_diff else a_att,encodings
+
+# x_sample = x_sample.to(self.device)
+#         x_fake_list = [x_sample]
+#         for c_trg_sample in c_sample_list:
+#             attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
+#             attr_diff = attr_diff if self.config.use_attr_diff else c_trg_sample #* self.config.thres_int
+#             encodings = [C(x_sample)[0] for C in self.Cs]
+#             fake_image,_=self.G(x_sample, attr_diff.to(self.device),encodings)
+#             x_fake_list.append(fake_image)
+#         x_concat = torch.cat(x_fake_list, dim=3)
+#         if writer:
+#             self.writer.add_image('sample', make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
+#                                     self.current_iteration)
+#         save_image(self.denorm(x_concat.data.cpu()),path,
+#                     nrow=1, padding=0)
+
+
 
     def test_pca(self):
         self.load_checkpoint()

@@ -251,17 +251,9 @@ class DisentangledGenerator(nn.Module):
             out = dec_layer(out)
         return out
 
-    def forward(self, x, a, encodings):
-        # propagate encoder layers
-        encoded = []
-        x_ = x
-        for layer in self.encoder:
-            x_ = layer(x_)
-            encoded.append(x_)
-
-        #first decoder step
-        out = encoded[-1]
-        stu_state = encoded[-1]
+    def decode_from_disentangled(self, z, a, encodings):
+        out = z
+        stu_state = z
         a = a.view((out.size(0), self.n_attrs, 1, 1))
 
         for i, dec_layer in enumerate(self.decoder):
@@ -278,6 +270,21 @@ class DisentangledGenerator(nn.Module):
                     out = torch.cat([out, enc[self.n_layers-1-i]], dim=1)
                     #print(out.shape)
             out = dec_layer(out)
+        return out
+
+    def encode(self, x):
+        # propagate encoder layers
+        encoded = []
+        x_ = x
+        for layer in self.encoder:
+            x_ = layer(x_)
+            encoded.append(x_)
+        return encoded
+
+    def forward(self, x, a, encodings):
+        # propagate encoder layers
+        encoded = self.encode(x)
+        out=self.decode_from_disentangled(encoded[-1],a,encodings)
         return out,encoded
 
 
