@@ -101,7 +101,7 @@ class STGANAgent(object):
             if optimizer != None:
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
                 
-        [load_one_model(self.Cs[i],None,'C'+str(i),50000) for i in range(2)]
+        [load_one_model(self.Cs[i],None,'C'+str(i),60000) for i in range(2)]
         
         if self.config.checkpoint is None:
             return
@@ -305,8 +305,8 @@ class STGANAgent(object):
         self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
         self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
 
-        #self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
-        #self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
+        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
+        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
 
 
         if self.cuda and self.config.ngpu > 1:
@@ -517,22 +517,10 @@ class STGANAgent(object):
                             scalars['G/loss_att'] = g_loss_att.item()
                             scalars['G/lambda_new'] = lambda_new
 
-                    for i,C in enumerate(self.Cs):      
-                        C.train()
-                        _,pred = C(Ia)
-                        loss = self.classification_loss(pred,labels[i+1].to(self.device))
-                        # backward and optimize
-                        #self.optimize(self.optimizer_Cs[i],loss)
-                        # summarize
-                        scalars['C/loss{}'.format(i)] = loss.item()
-                    # for i,C in enumerate(self.Cs):
-                    #     _,pred = C(Ia)
-                    #     classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
-                    #     #g_loss += classif_loss
-                    #     # backward and optimize
-                    #     #self.optimize(self.optimizer_Cs[i],loss)
-                    #     # summarize
-                    #     scalars['C/loss{}'.format(i)] = classif_loss.item()
+                    for i,C in enumerate(self.Cs):
+                        classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
+                        #g_loss += classif_loss
+                        scalars['C/loss{}'.format(i)] = classif_loss.item()
 
                     self.optimizer_G.zero_grad()
                     #[optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
@@ -563,6 +551,7 @@ class STGANAgent(object):
                     et = time.time() - start_time
                     et = str(datetime.timedelta(seconds=et))[:-7]
                     print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
+                    #print(scalars)
                     for tag, value in scalars.items():
                         self.writer.add_scalar(tag, value, self.current_iteration)
 
