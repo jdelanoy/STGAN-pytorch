@@ -305,8 +305,8 @@ class STGANAgent(object):
         self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
         self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
 
-        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
-        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
+        #self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
+        #self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
 
 
         if self.cuda and self.config.ngpu > 1:
@@ -345,7 +345,7 @@ class STGANAgent(object):
                 # =================================================================================== #
                 # fetch real images and labels
                 try:
-                    Ia, a_att = next(data_iter)
+                    Ia, a_att, labels = next(data_iter)
                 except:
                     data_iter = iter(self.data_loader.train_loader)
                     Ia, a_att, labels = next(data_iter)
@@ -517,20 +517,28 @@ class STGANAgent(object):
                             scalars['G/loss_att'] = g_loss_att.item()
                             scalars['G/lambda_new'] = lambda_new
 
-                    for i,C in enumerate(self.Cs):
+                    for i,C in enumerate(self.Cs):      
+                        C.train()
                         _,pred = C(Ia)
-                        classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
-                        #g_loss += classif_loss
+                        loss = self.classification_loss(pred,labels[i+1].to(self.device))
                         # backward and optimize
                         #self.optimize(self.optimizer_Cs[i],loss)
                         # summarize
-                        scalars['C/loss{}'.format(i)] = classif_loss.item()
+                        scalars['C/loss{}'.format(i)] = loss.item()
+                    # for i,C in enumerate(self.Cs):
+                    #     _,pred = C(Ia)
+                    #     classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
+                    #     #g_loss += classif_loss
+                    #     # backward and optimize
+                    #     #self.optimize(self.optimizer_Cs[i],loss)
+                    #     # summarize
+                    #     scalars['C/loss{}'.format(i)] = classif_loss.item()
 
                     self.optimizer_G.zero_grad()
-                    [optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
+                    #[optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
                     g_loss.backward(retain_graph=True)
                     self.optimizer_G.step()
-                    [optimizer_C.step() for optimizer_C in self.optimizer_Cs]
+                    #[optimizer_C.step() for optimizer_C in self.optimizer_Cs]
 
                     # backward and optimize
                     #self.optimize(self.optimizer_G,g_loss)
