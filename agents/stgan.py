@@ -229,7 +229,7 @@ class STGANAgent(object):
                 self.pretrain_classif()
             else:
                 #self.test_pca()
-                #self.test()
+                self.test()
                 self.test_disentangle()
                 #self.test_classif()
         except KeyboardInterrupt:
@@ -305,7 +305,7 @@ class STGANAgent(object):
         self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
         self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
 
-        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
+        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr*0.1) for C in self.Cs]
         self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
 
 
@@ -519,14 +519,14 @@ class STGANAgent(object):
 
                     for i,C in enumerate(self.Cs):
                         classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
-                        #g_loss += classif_loss
+                        if (self.current_iteration>20000): g_loss += 10*classif_loss
                         scalars['C/loss{}'.format(i)] = classif_loss.item()
 
                     self.optimizer_G.zero_grad()
-                    #[optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
+                    if (self.current_iteration>20000): [optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
                     g_loss.backward(retain_graph=True)
                     self.optimizer_G.step()
-                    #[optimizer_C.step() for optimizer_C in self.optimizer_Cs]
+                    if (self.current_iteration>20000): [optimizer_C.step() for optimizer_C in self.optimizer_Cs]
 
                     # backward and optimize
                     #self.optimize(self.optimizer_G,g_loss)
@@ -631,7 +631,7 @@ class STGANAgent(object):
 
         self.G.eval()
         with torch.no_grad():
-            for i, (x_real, c_org) in enumerate(tqdm_loader):
+            for i, (x_real, c_org,_) in enumerate(tqdm_loader):
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
@@ -651,6 +651,7 @@ class STGANAgent(object):
         with torch.no_grad():
             for batch, (x_real, a_att, labels) in enumerate(tqdm_loader):
                 x_real=x_real.to(self.device)
+                a_att=a_att.to(self.device)
                 #encode all the batch
                 #through the attribute branches
                 encodings = [C(x_real)[0] for C in self.Cs]
