@@ -87,6 +87,7 @@ class STGANAgent(object):
             return
         save_one_model(self.G,self.optimizer_G,'G')
         [save_one_model(self.Adv_Cs[i],self.optimizer_Adv_Cs[i],'Adv_C'+str(i)) for i in range(len(self.Adv_Cs))]
+        [save_one_model(self.Cs[i],self.optimizer_Cs[i],'newC'+str(i)) for i in range(2)]
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             save_one_model(self.D,self.optimizer_D,'D')
         if self.config.use_latent_disc:
