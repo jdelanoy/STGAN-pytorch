@@ -43,7 +43,7 @@ class STGANAgent(object):
         
         self.G = DisentangledGenerator(len(self.config.attrs), 2,self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv, vgg_like=True)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
-        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, len(self.config.attrs), self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
+        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, len(self.config.attrs), self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(1)]
         self.Adv_Cs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, 0,tanh=False) for n_class in [13,6]] 
         self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.d_layers, vgg_like=True) for n_class in [13,6]] 
         print(self.G)
@@ -442,7 +442,8 @@ class STGANAgent(object):
                     #_,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
 
                     for _ in range(self.config.n_critic_ld):
-                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
+                        for branch in range(1):
+#                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
                             out_att = self.LDs[branch](z[-branch-1])
 
                             #classification loss
@@ -495,7 +496,8 @@ class STGANAgent(object):
 
                     #latent discriminator for attribtues
                     if self.config.use_latent_disc:
-                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
+                        for branch in range(1):
+#                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
                             out_att = self.LDs[branch](z[-branch-1])
                             g_loss_latent = -self.regression_loss(out_att, a_att)
                             g_loss += self.config.lambda_g_latent * g_loss_latent
