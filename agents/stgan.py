@@ -87,6 +87,7 @@ class STGANAgent(object):
             return
         save_one_model(self.G,self.optimizer_G,'G')
         [save_one_model(self.Adv_Cs[i],self.optimizer_Adv_Cs[i],'Adv_C'+str(i)) for i in range(len(self.Adv_Cs))]
+        [save_one_model(self.Cs[i],self.optimizer_Cs[i],'newC'+str(i)) for i in range(2)]
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             save_one_model(self.D,self.optimizer_D,'D')
         if self.config.use_latent_disc:
@@ -101,7 +102,7 @@ class STGANAgent(object):
             if optimizer != None:
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
                 
-        [load_one_model(self.Cs[i],None,'C'+str(i),50000) for i in range(2)]
+        [load_one_model(self.Cs[i],None,'C'+str(i),60000) for i in range(2)]
         
         if self.config.checkpoint is None:
             return
@@ -229,7 +230,7 @@ class STGANAgent(object):
                 self.pretrain_classif()
             else:
                 #self.test_pca()
-                #self.test()
+                self.test()
                 self.test_disentangle()
                 #self.test_classif()
         except KeyboardInterrupt:
@@ -305,8 +306,8 @@ class STGANAgent(object):
         self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
         self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
 
-        #self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
-        #self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
+        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr*0.1) for C in self.Cs]
+        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
 
 
         if self.cuda and self.config.ngpu > 1:
@@ -517,28 +518,16 @@ class STGANAgent(object):
                             scalars['G/loss_att'] = g_loss_att.item()
                             scalars['G/lambda_new'] = lambda_new
 
-                    for i,C in enumerate(self.Cs):      
-                        C.train()
-                        _,pred = C(Ia)
-                        loss = self.classification_loss(pred,labels[i+1].to(self.device))
-                        # backward and optimize
-                        #self.optimize(self.optimizer_Cs[i],loss)
-                        # summarize
-                        scalars['C/loss{}'.format(i)] = loss.item()
-                    # for i,C in enumerate(self.Cs):
-                    #     _,pred = C(Ia)
-                    #     classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
-                    #     #g_loss += classif_loss
-                    #     # backward and optimize
-                    #     #self.optimize(self.optimizer_Cs[i],loss)
-                    #     # summarize
-                    #     scalars['C/loss{}'.format(i)] = classif_loss.item()
+                    for i,C in enumerate(self.Cs):
+                        classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
+                        if (self.current_iteration>20000): g_loss += 10*classif_loss
+                        scalars['C/loss{}'.format(i)] = classif_loss.item()
 
                     self.optimizer_G.zero_grad()
-                    #[optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
+                    if (self.current_iteration>20000): [optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
                     g_loss.backward(retain_graph=True)
                     self.optimizer_G.step()
-                    #[optimizer_C.step() for optimizer_C in self.optimizer_Cs]
+                    if (self.current_iteration>20000): [optimizer_C.step() for optimizer_C in self.optimizer_Cs]
 
                     # backward and optimize
                     #self.optimize(self.optimizer_G,g_loss)
@@ -563,6 +552,7 @@ class STGANAgent(object):
                     et = time.time() - start_time
                     et = str(datetime.timedelta(seconds=et))[:-7]
                     print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
+                    #print(scalars)
                     for tag, value in scalars.items():
                         self.writer.add_scalar(tag, value, self.current_iteration)
 
@@ -642,7 +632,7 @@ class STGANAgent(object):
 
         self.G.eval()
         with torch.no_grad():
-            for i, (x_real, c_org) in enumerate(tqdm_loader):
+            for i, (x_real, c_org,_) in enumerate(tqdm_loader):
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
@@ -662,6 +652,7 @@ class STGANAgent(object):
         with torch.no_grad():
             for batch, (x_real, a_att, labels) in enumerate(tqdm_loader): #MANU change to your outputs of the loader
                 x_real=x_real.to(self.device)
+                a_att=a_att.to(self.device)
                 #encode all the batch
                 #MANU encodings should be the list of encodings of the 3 branches
                 #MANU encodings[i] are all the feature maps of one branche, not only the latent vector (for skip connections)
