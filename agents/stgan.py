@@ -109,6 +109,7 @@ class STGANAgent(object):
 
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
         [load_one_model(self.Adv_Cs[i],self.optimizer_Adv_Cs[i] if self.config.mode=='train' else None,'Adv_C'+str(i)) for i in range(len(self.Adv_Cs))]
+        [load_one_model(self.Cs[i],self.optimizer_Cs[i] if self.config.mode=='train' else None,'newC'+str(i)) for i in range(2)]
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
         if self.config.use_latent_disc:
