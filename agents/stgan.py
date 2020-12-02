@@ -660,61 +660,36 @@ class STGANAgent(object):
         self.G.eval()
         [C.eval() for C in self.Cs]
         with torch.no_grad():
-            for batch, (x_real, a_att, labels) in enumerate(tqdm_loader):
+            for batch, (x_real, a_att, labels) in enumerate(tqdm_loader): #MANU change to your outputs of the loader
                 x_real=x_real.to(self.device)
                 #encode all the batch
-                #through the attribute branches
-                encodings = [C(x_real)[0] for C in self.Cs]
-                #through main encoder
-                z = self.G.encode(x_real)
-                #print(z[-1].shape)
+                #MANU encodings should be the list of encodings of the 3 branches
+                #MANU encodings[i] are all the feature maps of one branche, not only the latent vector (for skip connections)
+                encodings = [C(x_real)[0] for C in self.Cs] #through the attribute branches
+                z = self.G.encode(x_real) #through main encoder
                 encodings.append(z)
-                #for shape
+                #for each branch
                 for label in range(len(encodings)):
-                    #label=0
                     x_fake_list = [torch.cat((x_real[0].unsqueeze(0),x_real),dim=0)]
-                    #each column: all share the same shape embedding
+                    #each column: all share the same embedding for the branch
                     for c in range(x_real.shape[0]):
-                        #print(c)
                         encodings_copy = [[enc.clone().to(self.device) for enc in encs] for encs in encodings]
-                        # print(len(encodings))
-                        # print(len(encodings[0]))
                         common_features=encodings_copy[label]
                         #change encoding for all images
-                        #encodings[0,:]=common_features
-                        for layer in range(len(common_features)):
-                            for i in range(x_real.shape[0]):
+                        for layer in range(len(common_features)): #for each layer
+                            for i in range(x_real.shape[0]): #for each image
                                 encodings_copy[label][layer][i]=common_features[layer][c]
-                        #print(len(encodings_copy),len(encodings_copy[-1]),encodings_copy[-1][-1].shape)
+                        #MANU decode for the encodings in encodings_copy, change to your net
                         fake_image=self.G.decode_from_disentangled(encodings_copy[-1][-1],a_att- a_att if self.config.use_attr_diff else a_att,encodings_copy[:-1])
-                        #print(torch.min(fake_image),torch.max(fake_image)) 
+                        #add column to list of images
                         fake_image=torch.cat((x_real[c].unsqueeze(0),fake_image),dim=0)
-                        
                         x_fake_list.append(fake_image)
                     x_concat = torch.cat(x_fake_list, dim=3)
                     path=os.path.join(self.config.result_dir, 'sample_disentangle_{}_{}_{}.jpg'.format(batch + 1,label,self.config.checkpoint))
                     save_image(self.denorm(x_concat.data.cpu()),path,
                                 nrow=1, padding=0)
 
-                #self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
-
-# , a_att- a_att if self.config.use_attr_diff else a_att,encodings
-
-# x_sample = x_sample.to(self.device)
-#         x_fake_list = [x_sample]
-#         for c_trg_sample in c_sample_list:
-#             attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
-#             attr_diff = attr_diff if self.config.use_attr_diff else c_trg_sample #* self.config.thres_int
-#             encodings = [C(x_sample)[0] for C in self.Cs]
-#             fake_image,_=self.G(x_sample, attr_diff.to(self.device),encodings)
-#             x_fake_list.append(fake_image)
-#         x_concat = torch.cat(x_fake_list, dim=3)
-#         if writer:
-#             self.writer.add_image('sample', make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
-#                                     self.current_iteration)
-#         save_image(self.denorm(x_concat.data.cpu()),path,
-#                     nrow=1, padding=0)
-
+  
 
 
     def test_pca(self):
