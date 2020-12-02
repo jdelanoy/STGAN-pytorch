@@ -169,7 +169,7 @@ class Generator(nn.Module):
 
 
 class DisentangledGenerator(nn.Module):
-    def __init__(self, attr_dim, n_embeddings, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False):
+    def __init__(self, attr_dim, n_embeddings, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False, image_size=128, fc_dim=256):
         super(DisentangledGenerator, self).__init__()
         self.n_attrs = attr_dim
         self.n_layers = n_layers
@@ -181,18 +181,29 @@ class DisentangledGenerator(nn.Module):
         enc_layers=get_encoder_layers(conv_dim>>1,n_layers,max_dim>>1,bias=True,vgg_like=vgg_like) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
+        feature_size = image_size // 2**n_layers
+        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
+
+        self.features = nn.Sequential(
+            nn.Linear(out_conv * feature_size ** 2, fc_dim*2),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+
         self.stu = nn.ModuleList()
         ##### build decoder
+        self.decoder_fc = nn.Sequential(
+            nn.Linear(fc_dim*2*(n_embeddings+1),fc_dim*4),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
         self.decoder = nn.ModuleList()
-        for i in reversed(range(self.n_layers)):
+        for i in reversed(range(self.n_layers+1)):
             #size if inputs/outputs
             dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
             dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
             enc_size = min(max_dim,conv_dim * 2 ** (i))>>1
 
-            #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-            if i == self.n_layers-1: dec_in = enc_size
-            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+            #if i == self.n_layers-1: dec_in = enc_size
+            if i >= self.n_layers - self.n_attr_deconv + 1: dec_in = dec_in + attr_dim #concatenate attribute
             if i >= self.n_layers - 1 - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
                 dec_in = dec_in + n_embeddings * (enc_size)
                 if use_stu:
@@ -252,7 +263,12 @@ class DisentangledGenerator(nn.Module):
         return out
 
     def decode_from_disentangled(self, z, a, encodings):
+        #concat all features
         out = z
+        for enc in encodings:
+            out = torch.cat([out, enc[-1]], dim=1)
+        out=self.decoder_fc(out)
+        out = out.expand(out.size()[0], out.size()[1],1,1)
         stu_state = z
         a = a.view((out.size(0), self.n_attrs, 1, 1))
 
@@ -263,11 +279,11 @@ class DisentangledGenerator(nn.Module):
                 size = out.size(2)
                 attr = a.expand((out.size(0), self.n_attrs, size, size))
                 out = torch.cat([out, attr], dim=1)
-            if  i <= self.shortcut_layers:
+            if  0 < i <= self.shortcut_layers:
                 #do shortcut connection
                 for enc in encodings:
                     #print(out.shape,enc[self.n_layers-1-i].shape)
-                    out = torch.cat([out, enc[self.n_layers-1-i]], dim=1)
+                    out = torch.cat([out, enc[self.n_layers-i]], dim=1)
                     #print(out.shape)
             out = dec_layer(out)
         return out
@@ -275,10 +291,13 @@ class DisentangledGenerator(nn.Module):
     def encode(self, x):
         # propagate encoder layers
         encoded = []
-        x_ = x
+        y = x
         for layer in self.encoder:
-            x_ = layer(x_)
-            encoded.append(x_)
+            y = layer(y)
+            encoded.append(y)
+        y = y.view(y.size()[0], -1)
+        y=self.features(y)
+        encoded.append(y)
         return encoded
 
     def forward(self, x, a, encodings):
@@ -356,8 +375,13 @@ class Classifier(nn.Module):
         feature_size = image_size // 2**n_layers
         out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
 
+        self.features = nn.Sequential(
+            nn.Linear(out_conv * feature_size ** 2, fc_dim*2),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        )
+
         self.fc_att = nn.Sequential(
-            nn.Linear(out_conv * feature_size ** 2, fc_dim),
+            nn.Linear(fc_dim * 2, fc_dim),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             nn.Linear(fc_dim, n_classes)
             #nn.Tanh()
@@ -371,6 +395,8 @@ class Classifier(nn.Module):
             encoded.append(y)
         #y = self.conv(x)
         y = y.view(y.size()[0], -1)
+        y=self.features(y)
+        encoded.append(y)
         logit_att = self.fc_att(y)
         return encoded,logit_att
 
