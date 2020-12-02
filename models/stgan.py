@@ -87,7 +87,7 @@ class Generator(nn.Module):
             #print(i,dec_out,dec_in,enc_size)
 
             if i > 0:
-                if vgg_like and i > 3:
+                if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
                     self.decoder.append(nn.Sequential(
                         #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
                         nn.UpsamplingNearest2d(scale_factor=2),
@@ -200,7 +200,7 @@ class DisentangledGenerator(nn.Module):
             print(i,dec_in,dec_out,enc_size)
 
             if i > 0:
-                if vgg_like and i > 3:
+                if vgg_like and i > min(3,self.n_layers - 1 - self.shortcut_layers):
                     self.decoder.append(nn.Sequential(
                         #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
                         nn.UpsamplingNearest2d(scale_factor=2),
