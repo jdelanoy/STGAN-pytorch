@@ -182,7 +182,7 @@ class DisentangledGenerator(nn.Module):
         self.encoder = nn.ModuleList(enc_layers)
 
         feature_size = image_size // 2**n_layers
-        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
+        out_conv = min(max_dim>>1,(conv_dim>>1) * 2 ** (n_layers - 1))
 
         self.features = nn.Sequential(
             nn.Linear(out_conv * feature_size ** 2, fc_dim*2),
@@ -204,7 +204,7 @@ class DisentangledGenerator(nn.Module):
 
             #if i == self.n_layers-1: dec_in = enc_size
             if i >= self.n_layers - self.n_attr_deconv + 1: dec_in = dec_in + attr_dim #concatenate attribute
-            if i >= self.n_layers - 1 - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
+            if i >= self.n_layers - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
                 dec_in = dec_in + n_embeddings * (enc_size)
                 if use_stu:
                     self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
@@ -268,7 +268,7 @@ class DisentangledGenerator(nn.Module):
         for enc in encodings:
             out = torch.cat([out, enc[-1]], dim=1)
         out=self.decoder_fc(out)
-        out = out.expand(out.size()[0], out.size()[1],1,1)
+        out = out.unsqueeze(-1).unsqueeze(-1) # expand(out.size()[0], out.size()[1],1,1)
         stu_state = z
         a = a.view((out.size(0), self.n_attrs, 1, 1))
 
@@ -310,31 +310,30 @@ class DisentangledGenerator(nn.Module):
 class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False,tanh=True):
         super(Latent_Discriminator, self).__init__()
-        layers = []
-        n_dis_layers = int(np.log2(image_size))
-        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=vgg_like)
-        self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
+        #layers = []
+        # n_dis_layers = int(np.log2(image_size))
+        # layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=vgg_like)
+        # self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
 
-        out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
+        # out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
         if (tanh):
             self.fc_att = nn.Sequential(
-                nn.Linear(out_conv, fc_dim),
+                nn.Linear(fc_dim*2, fc_dim),
                 nn.LeakyReLU(negative_slope=0.2, inplace=True),
                 nn.Linear(fc_dim, attr_dim),
                 nn.Tanh()
             )
         else:
             self.fc_att = nn.Sequential(
-                nn.Linear(out_conv, fc_dim),
+                nn.Linear(fc_dim*2, fc_dim),
                 nn.LeakyReLU(negative_slope=0.2, inplace=True),
                 nn.Linear(fc_dim, attr_dim)
             )
     def forward(self, x):
-        y = self.conv(x)
-        y = y.view(y.size()[0], -1)
-        logit_att = self.fc_att(y)
+        #y = self.conv(x)
+        #y = y.view(y.size()[0], -1)
+        logit_att = self.fc_att(x)
         return logit_att
-
 
 class Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
