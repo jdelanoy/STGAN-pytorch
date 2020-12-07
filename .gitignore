@@ -1,3 +1,5 @@
+logs/
+logs/*
 experiments/
 .idea/
 */__pycache__/
