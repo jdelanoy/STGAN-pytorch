@@ -140,6 +140,7 @@ class Generator(nn.Module):
     def forward(self, x, a):
         # propagate encoder layers
         encoded = []
+        #img=x.clone()
         x_ = x
         for layer in self.encoder:
             x_ = layer(x_)
@@ -164,6 +165,9 @@ class Generator(nn.Module):
                 else:
                     out = torch.cat([out, encoded[-(i+1)]], dim=1)
             out = dec_layer(out)
+            #print(out.shape,x.shape)
+        out=out+x
+        out.clamp(-1,1)
         return out,encoded
 
 class Latent_Discriminator(nn.Module):
@@ -193,7 +197,7 @@ class Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
         super(Discriminator, self).__init__()
         layers = []
-        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm=nn.InstanceNorm2d,bias=True)
+        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm=nn.InstanceNorm2d,bias=True,vgg_like=True)
         self.conv = nn.Sequential(*layers)
 
         feature_size = image_size // 2**n_layers

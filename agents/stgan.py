@@ -41,7 +41,7 @@ class STGANAgent(object):
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
         
-        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv)
+        self.G = Generator(len(self.config.attrs), self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv,vgg_like=True)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(self.config.shortcut_layers+1)]
         print(self.G)
@@ -293,12 +293,12 @@ class STGANAgent(object):
                             d_loss_att = self.classification_loss(out_att_real, a_att)
                             d_loss += self.config.lambda_d_att * d_loss_att
                             #train with generator images
-                            if(self.current_iteration>30000):
-                                Ia_hat,_ = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
-                                _, out_att_fake = self.D(Ia_hat.detach())
-                                d_loss_att2 = self.classification_loss(out_att_fake, a_att)
-                                scalars['D/loss_att2'] = d_loss_att2.item()
-                                d_loss += self.config.lambda_d_att * d_loss_att2
+                            # if(self.current_iteration>30000):
+                            #     Ia_hat,_ = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                            #     _, out_att_fake = self.D(Ia_hat.detach())
+                            #     d_loss_att2 = self.classification_loss(out_att_fake, a_att)
+                            #     scalars['D/loss_att2'] = d_loss_att2.item()
+                            #     d_loss += self.config.lambda_d_att * d_loss_att2
                             scalars['D/loss_att'] = d_loss_att.item()
 
                         # backward and optimize
@@ -385,7 +385,7 @@ class STGANAgent(object):
                             g_loss += self.config.lambda_adv * g_loss_adv
                             scalars['G/loss_adv'] = g_loss_adv.item()
                         if self.config.use_classifier_generator:
-                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-20000)/20000,1),0)
+                            lambda_new = self.config.lambda_g_att #* max(min((self.current_iteration-20000)/20000,1),0)
                             g_loss_att = self.classification_loss(out_att, b_att)
                             g_loss += lambda_new * g_loss_att
                             scalars['G/loss_att'] = g_loss_att.item()
