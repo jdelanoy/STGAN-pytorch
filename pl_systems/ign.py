@@ -100,6 +100,39 @@ class HardIGN(pl.LightningModule):
 
         return loss
 
+    def test_disentangle(self, batch):
+        # forward through the model and get loss
+        img, label, mode = batch
+        batch_size = img.size(0)
+
+        bneck, enc_feat = self.model.forward_encoder(img)
+        #bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
+        splitted_bneck = self.split_bneck(bneck)
+        #for each property
+        for label in range(len(splitted_bneck)):
+            #add image in the left top corner
+            x_fake_list = [torch.cat((img[0].unsqueeze(0),img),dim=0)]
+            #each image makes a column: all share the same embedding for the branch
+            for c in range(batch_size):
+                encodings_copy = [enc.clone() for enc in splitted_bneck] #[[enc.clone() for enc in encs] for encs in encodings]
+                common_features=encodings_copy[label][c]
+                #change encoding for all images
+                for i in range(batch_size): #for each image
+                    encodings_copy[label][i]=common_features
+                # for layer in range(len(common_features)): #for each layer
+                #     for i in range(img.shape[0]): #for each image
+                #         encodings_copy[label][layer][i]=common_features[layer][c]
+                #decode for the encodings in encodings_copy
+                bneck = self.join_bneck(*encodings_copy)
+                fake_image=(self.model.forward_decoder(img, bneck, enc_feat))
+                #add reference image
+                fake_image=torch.cat((img[c].unsqueeze(0),fake_image),dim=0)
+                x_fake_list.append(fake_image)
+            x_concat = torch.cat(x_fake_list, dim=3)
+            img_log = tvutils.make_grid(x_concat * 0.5 + 0.5, nrow=1)
+            self.tb_add_image('Reconstructed img_'+str(label), img_log, global_step=self.global_step)
+
+
     def log_img_interpolation(self, batch):
         # forward through the model and get loss
         img, label, mode = batch
