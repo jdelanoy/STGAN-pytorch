@@ -8,7 +8,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from datasets.materials_data_module import MaterialDataModule
-from pl_systems.ign import IGN
+from pl_systems.ign import SoftIGN, HardIGN, OriginalIGN
 
 
 def main(hparams):
@@ -22,7 +22,7 @@ def main(hparams):
     )
 
     # init lightining model
-    model = IGN(hparams=hparams)
+    model = OriginalIGN(hparams=hparams)
 
     # init trainer
     trainer = Trainer(
@@ -33,11 +33,14 @@ def main(hparams):
         precision=16,
         progress_bar_refresh_rate=16,
         weights_summary='top',
-        # overfit_batches=1
+
+        # if we use the original IGN we do not activate the automatic optimization since
+        # we need to manipulate the gradients manually
+        automatic_optimization=model.__class__.__name__ != 'OriginalIGN'
     )
 
     # Load datamodule
-    humans_datamodule = MaterialDataModule(
+    material_data = MaterialDataModule(
         root=hparams.data_path,
         attrs=hparams.attrs,
         crop_size=hparams.crop_size,
@@ -47,16 +50,16 @@ def main(hparams):
     )
 
     # 5 Start training
-    trainer.fit(model, humans_datamodule)
+    trainer.fit(model, material_data)
 
 
 if __name__ == '__main__':
     current_time = datetime.today().strftime('%Y-%m-%d')
 
     _root_dir = os.path.dirname(os.path.realpath(__file__))
-    log_dir = os.path.join(_root_dir, 'logs/logs_1207')
+    log_dir = os.path.join(_root_dir, 'logs/logs_1210')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
-    experiment_name = 'IGN'
+    experiment_name = 'HardIGN'
     experiment_version = 'Autoencoder-first_test'
 
     hparams = argparse.ArgumentParser(add_help=False)
@@ -64,7 +67,7 @@ if __name__ == '__main__':
     hparams.add_argument('--model-save_path', default=checkpoint_dir)
     hparams.add_argument('--experiment_name', default=experiment_name)
     hparams.add_argument('--experiment_version', default=experiment_version)
-    hparams = IGN.add_ckpt_args(hparams).parse_args()
+    hparams = OriginalIGN.add_ckpt_args(hparams).parse_args()
 
     # ---------------------
     # RUN TRAINING

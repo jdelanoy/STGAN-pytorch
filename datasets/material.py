@@ -83,7 +83,19 @@ def make_dataset(root, mode, selected_attrs):
             'illuminations': illumination}
 
 
-class DisentangledSampler(torch.utils.data.sampler.Sampler):
+def list2idxs(l):
+    idx2obj = list(set(l))
+    idx2obj.sort()
+    obj2idx = {mat: i for i, mat in enumerate(idx2obj)}
+    l = [obj2idx[obj] for obj in l]
+    return l, idx2obj, obj2idx
+
+
+class HardDisentangledSampler(torch.utils.data.sampler.Sampler):
+    ## Samples the batch in such a way that only one property is different accros items
+    ## for instance, if we have as properties: material, shape and illumniation.
+    ## The batch will be sampled in such a way that onle material differs (or only shape
+    ## or only illumination) accros the items in the batch.
     def __init__(self, data_source, batch_size):
         self.data_source = data_source
         self.mats = self.data_source.mats
@@ -141,15 +153,60 @@ class DisentangledSampler(torch.utils.data.sampler.Sampler):
                 yield possible_idx[i], mode
 
     def __len__(self):
-        return len(self.data_source)
+        return len(self.data_source) * self.batch_size
 
 
-def list2idxs(l):
-    idx2obj = list(set(l))
-    idx2obj.sort()
-    obj2idx = {mat: i for i, mat in enumerate(idx2obj)}
-    l = [obj2idx[obj] for obj in l]
-    return l, idx2obj, obj2idx
+class SoftDisentangledSampler(HardDisentangledSampler):
+    ## Samples the batch in such a way that only one property is shared accros items
+    ## for instance, if we have as properties: material, shape and illumniation.
+    ## The batch will be sampled in such a way that only material is equal (or only shape
+    ## or only illumination) accros the items in the batch.
+
+    def __iter__(self):
+        # get all possible idxs in the dataset shuffled
+        rand_idxs = torch.randperm(len(self.data_source)).tolist()
+
+        # here we keep track of the number of batches sampled
+        while len(rand_idxs) > 0:
+            # mode for the batch -> 0:material, 1:geometry, 2:illumination
+            mode = random.randint(0, 2)
+
+            # get current index
+            curr_idx = rand_idxs.pop(0)
+            yield curr_idx, mode
+
+            # get current object properties
+            material_idx = self.mats[curr_idx]
+            geometry_idx = self.geoms[curr_idx]
+            illumination_idx = self.illums[curr_idx]
+
+            # see other objects in the dataset that we can sample according to the
+            # given mode
+            materials = self.mats != material_idx
+            geometries = self.geoms != geometry_idx
+            illumination = self.illums != illumination_idx
+            if mode == 0:  # only MATERIAL is equal in the batch
+                materials = self.mats == material_idx
+            if mode == 1:  # only GEOMETRY is equal in the batch
+                geometries = self.geoms == geometry_idx
+            if mode == 2:  # only ILLUMINATION is equal in the batch
+                illumination = self.illums == illumination_idx
+
+            # get the intersection of the possible factors to sample
+            possible_idx = materials * geometries * illumination
+
+            # retrieve is position in the tensor
+            possible_idx = possible_idx.nonzero()
+
+            # randomly shuffle the idxs that are possible to sample
+            possible_idx = possible_idx[torch.randperm(len(possible_idx))]
+
+            # populate the batch with such idxs
+            for i in range(self.batch_size - 1):
+                yield possible_idx[i], mode
+
+    def __len__(self):
+        return len(self.data_source) * self.batch_size
 
 
 class MaterialDataset(data.Dataset):
@@ -175,7 +232,7 @@ class MaterialDataset(data.Dataset):
         # if self.mode == 'train':
         index, sampling_mode = index_and_mode
         # else:
-            # index = index_and_mode
+        # index = index_and_mode
 
         filename = os.path.join(self.root, self.files[index])
         label = self.labels[index]
@@ -237,16 +294,17 @@ class MaterialDataLoader(object):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
+    from tqdm import tqdm
 
     data_root = '/media/data/Projects/2020-MATERIAL_EDITING/data/renders_materials_manu'
     data = MaterialDataset(root=data_root,
                            mode='train',
                            selected_attrs=['glossy'],
                            transform=transforms.ToTensor())
-    sampler = DisentangledSampler(data, batch_size=4)
+    sampler = SoftDisentangledSampler(data, batch_size=4)
     loader = DataLoader(data, sampler=sampler, batch_size=4)
 
-    for imgs, labels, mode in loader:
+    for imgs, labels, mode in tqdm(loader, total=len(loader)):
         from matplotlib import pyplot as plt
 
         print(mode)

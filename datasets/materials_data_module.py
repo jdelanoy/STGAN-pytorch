@@ -4,7 +4,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from datasets.material import MaterialDataset, DisentangledSampler
+from datasets.material import MaterialDataset, HardDisentangledSampler
 
 
 class RandomResize(object):
@@ -54,7 +54,7 @@ class MaterialDataModule(pl.LightningDataModule):
         return train_trf, val_trf
 
     def train_dataloader(self):
-        sampler = DisentangledSampler(self.data_train, batch_size=self.batch_size)
+        sampler = HardDisentangledSampler(self.data_train, batch_size=self.batch_size)
 
         return DataLoader(self.data_train,
                           batch_size=self.batch_size,
@@ -63,7 +63,7 @@ class MaterialDataModule(pl.LightningDataModule):
                           sampler=sampler)
 
     def val_dataloader(self):
-        sampler = DisentangledSampler(self.data_val, batch_size=self.batch_size)
+        sampler = HardDisentangledSampler(self.data_val, batch_size=self.batch_size)
 
         return DataLoader(self.data_val,
                           batch_size=self.batch_size,
