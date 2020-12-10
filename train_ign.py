@@ -47,6 +47,7 @@ def main(hparams):
         image_size=hparams.image_size,
         batch_size=hparams.batch_size,
         num_workers=hparams.num_workers,
+        use_soft_sampler=False,
     )
 
     # 5 Start training
@@ -59,7 +60,7 @@ if __name__ == '__main__':
     _root_dir = os.path.dirname(os.path.realpath(__file__))
     log_dir = os.path.join(_root_dir, 'logs/logs_1210')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
-    experiment_name = 'HardIGN'
+    experiment_name = 'OriginalIGN'
     experiment_version = 'Autoencoder-first_test'
 
     hparams = argparse.ArgumentParser(add_help=False)

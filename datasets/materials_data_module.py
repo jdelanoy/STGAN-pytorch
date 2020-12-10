@@ -4,7 +4,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from datasets.material import MaterialDataset, HardDisentangledSampler
+from datasets.material import MaterialDataset, HardDisentangledSampler, SoftDisentangledSampler
 
 
 class RandomResize(object):
@@ -19,7 +19,8 @@ class RandomResize(object):
 
 
 class MaterialDataModule(pl.LightningDataModule):
-    def __init__(self, root, attrs, crop_size, image_size, batch_size, num_workers):
+    def __init__(self, root, attrs, crop_size, image_size, batch_size, num_workers,
+                 use_soft_sampler=False):
         super(MaterialDataModule, self).__init__()
         self.root = root
         self.attrs = attrs
@@ -27,6 +28,7 @@ class MaterialDataModule(pl.LightningDataModule):
         self.crop_size = crop_size
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.use_soft_sampler=use_soft_sampler
 
     def setup(self, stage):
         train_trf, val_trf = self.setup_transforms()
@@ -53,14 +55,21 @@ class MaterialDataModule(pl.LightningDataModule):
 
         return train_trf, val_trf
 
+    @property
+    def sampler(self):
+        if self.use_soft_sampler:
+            return SoftDisentangledSampler(self.data_train, batch_size=self.batch_size)
+        else:
+            return HardDisentangledSampler(self.data_train, batch_size=self.batch_size)
+
     def train_dataloader(self):
-        sampler = HardDisentangledSampler(self.data_train, batch_size=self.batch_size)
+
 
         return DataLoader(self.data_train,
                           batch_size=self.batch_size,
                           pin_memory=True,
                           num_workers=self.num_workers,
-                          sampler=sampler)
+                          sampler=self.sampler)
 
     def val_dataloader(self):
         sampler = HardDisentangledSampler(self.data_val, batch_size=self.batch_size)
@@ -69,7 +78,7 @@ class MaterialDataModule(pl.LightningDataModule):
                           batch_size=self.batch_size,
                           pin_memory=True,
                           num_workers=self.num_workers,
-                          sampler=sampler)
+                          sampler=self.sampler)
                           # drop_last=True,
                           # shuffle=False)
 
