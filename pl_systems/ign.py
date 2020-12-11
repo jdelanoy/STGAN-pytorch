@@ -352,21 +352,21 @@ class OriginalIGN(HardIGN):
         # retreive bneck gradients
         bneck_mater_dx, bneck_shape_dx, bneck_illum_dx = self.split_bneck(bneck.grad)
 
-        # clamp gradients to be equal to the activation difference to the mean
-        if torch.all(mode == 0):  # only MATERIAL changes in the batch
-            bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
-            bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
-        elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-            bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
-            bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
-        elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-            bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
-            bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
-        else:
-            raise ValueError('data sampling mode not understood')
-
-        # join gradients back together
-        bneck.grad = self.join_bneck(bneck_mater_dx, bneck_shape_dx, bneck_illum_dx)
+        # # clamp gradients to be equal to the activation difference to the mean
+        # if torch.all(mode == 0):  # only MATERIAL changes in the batch
+        #     bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
+        #     bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
+        # elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
+        #     bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
+        #     bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
+        # elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
+        #     bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
+        #     bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
+        # else:
+        #     raise ValueError('data sampling mode not understood')
+        #
+        # # join gradients back together
+        # bneck.grad = self.join_bneck(bneck_mater_dx, bneck_shape_dx, bneck_illum_dx)
 
         # do the optimizer step
         optimizer.step()
@@ -391,23 +391,23 @@ class OriginalIGN(HardIGN):
 
             # clamp features to be equal to the batch mean
             if torch.all(mode == 0):  # only MATERIAL changes in the batch
-                bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(
-                    bneck_shape)
-                bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
-                    bneck_illum)
-                bneck = self.join_bneck(bneck_mater, bneck_shape_mean, bneck_illum_mean)
+                # bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(
+                #     bneck_shape)
+                # bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
+                #     bneck_illum)
+                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
                 bneck_mater = torch.roll(bneck_mater, 1, dims=0)
             elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-                bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
-                    bneck_mater)
-                bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
-                    bneck_illum)
-                bneck = self.join_bneck(bneck_mater_mean, bneck_shape, bneck_illum_mean)
+                # bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
+                #     bneck_mater)
+                # bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
+                #     bneck_illum)
+                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
                 bneck_shape = torch.roll(bneck_shape, 1, dims=0)
             elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-                bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
-                bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-                bneck = self.join_bneck(bneck_mater_mean, bneck_shape_mean, bneck_illum)
+                # bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                # bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
                 bneck_illum = torch.roll(bneck_illum, 1, dims=0)
             else:
                 raise ValueError('data sampling  mode not understood')

@@ -61,7 +61,7 @@ if __name__ == '__main__':
     log_dir = os.path.join(_root_dir, 'logs/logs_1210')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
     experiment_name = 'OriginalIGN'
-    experiment_version = 'Autoencoder-first_test'
+    experiment_version = 'Autoencoder-first_test-noclamp'
 
     hparams = argparse.ArgumentParser(add_help=False)
     hparams.add_argument('--log-experiment-path', default=log_dir)
