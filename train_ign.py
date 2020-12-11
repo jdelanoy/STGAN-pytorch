@@ -36,7 +36,8 @@ def main(hparams):
 
         # if we use the original IGN we do not activate the automatic optimization since
         # we need to manipulate the gradients manually
-        automatic_optimization=model.__class__.__name__ != 'OriginalIGN'
+        # NOTE: not needed now. Grad is automatically computed
+        # automatic_optimization=model.__class__.__name__ != 'OriginalIGN'
     )
 
     # Load datamodule
@@ -61,7 +62,7 @@ if __name__ == '__main__':
     log_dir = os.path.join(_root_dir, 'logs/logs_1210')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
     experiment_name = 'OriginalIGN'
-    experiment_version = 'Autoencoder-first_test-noclamp'
+    experiment_version = 'Autoencoder-first_test-noclamp-PercLoss'
 
     hparams = argparse.ArgumentParser(add_help=False)
     hparams.add_argument('--log-experiment-path', default=log_dir)

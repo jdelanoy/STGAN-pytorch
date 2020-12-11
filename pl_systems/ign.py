@@ -125,8 +125,8 @@ class HardIGN(pl.LightningModule):
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
         self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
-    def forward(self, img):
-        img_hat = self.model(img)
+    def forward(self, img, mode):
+        img_hat = self.model(img, mode)
         return img_hat
 
     def on_epoch_end(self):
@@ -197,7 +197,7 @@ class HardIGN(pl.LightningModule):
             parser.add_argument('--norm-bneck', default=True, type=bool)
 
             # optimizer parameters
-            parser.add_argument('--optimizer', default='sgd', type=str)
+            parser.add_argument('--optimizer', default='adam', type=str)
 
             # logging parameters
             parser.add_argument('--img-log-iter', default=500, type=str)
@@ -293,83 +293,55 @@ class SoftIGN(HardIGN):
 
 class OriginalIGN(HardIGN):
 
+    def __init__(self, hparams):
+        super(OriginalIGN, self).__init__(hparams)
+
+        self.example_input_array = [
+            torch.rand(4, 3, 256, 256).clamp(-1, 1),
+            torch.ones(8, 1),
+        ]
+
     def training_step(self, batch, batch_nb):
         img, label, mode = batch
-        optimizer = self.optimizers()
-        optimizer.zero_grad()
 
         # get bottleneck
-        bneck, enc_feat = self.model.forward_encoder(img)
-        bneck_mater, bneck_shape, bneck_illum = self.split_bneck(bneck,
-                                                                 do_norm=self.hparams.norm_bneck)
+        bneck, enc_feat = self.model.forward_encoder(img, mode)
+        bneck_size = bneck.shape
+
+        bneck_mater, \
+        bneck_shape, \
+        bneck_illum = self.model.split.split_bneck(bneck)
 
         # clamp features to be equal to the batch mean
         if torch.all(mode == 0):  # only MATERIAL changes in the batch
-            bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(
-                bneck_shape)
-            bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
-                bneck_illum)
-            bneck = self.join_bneck(bneck_mater, bneck_shape_mean, bneck_illum_mean)
+            bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+            bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+            bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
         elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-            bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
-                bneck_mater)
-            bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
-                bneck_illum)
-            bneck = self.join_bneck(bneck_mater_mean, bneck_shape, bneck_illum_mean)
+            bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+            bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+            bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
         elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-            bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(
-                bneck_shape)
-            bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
-                bneck_mater)
-            bneck = self.join_bneck(bneck_mater_mean, bneck_shape_mean, bneck_illum)
+            bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+            bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+            bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
         else:
             raise ValueError('data sampling  mode not understood')
 
+        # join bneck
+        bneck = self.model.split.join_bneck(bneck, bneck_size)
+
         # compute L1 losses and perceptual losses on the generated image
-        bneck.retain_grad()
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        # f_img = self.vgg16_f(img)
-        # f_img_hat = self.vgg16_f(img_hat)
+        f_img = self.vgg16_f(img)
+        f_img_hat = self.vgg16_f(img_hat)
 
         loss = {}
         loss['l1'] = F.l1_loss(img_hat, img)
-        # loss['perc'] = 0.1 * self.loss_P(f_img_hat, f_img)
-        # loss['style'] = 0.1 * self.loss_S(f_img_hat, f_img)
+        loss['perc'] = 0.1 * self.loss_P(f_img_hat, f_img)
+        loss['style'] = 0.1 * self.loss_S(f_img_hat, f_img)
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
-        self.log('train_loss', loss['loss'], on_step=True, on_epoch=False,
-                 prog_bar=True, logger=True)
-
-        # manually do the backward in the loss
-        self.manual_backward(loss['loss'], optimizer)
-
-        # from S3.2 IGN paper: "we train all the neurons which correspond to the inactive
-        # transformations with an error gradient equal to their difference from the mean.
-        # [...] This regularizing force needs to be scaled to be much smaller than the
-        # true training signal, otherwise it can overwhelm the reconstruction goal.
-        # Empirically, a factor of 1/100 works well."
-
-        # retreive bneck gradients
-        bneck_mater_dx, bneck_shape_dx, bneck_illum_dx = self.split_bneck(bneck.grad)
-
-        # # clamp gradients to be equal to the activation difference to the mean
-        # if torch.all(mode == 0):  # only MATERIAL changes in the batch
-        #     bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
-        #     bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
-        # elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-        #     bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
-        #     bneck_illum_dx = 1 / 100 * (bneck_illum - bneck_illum_mean)
-        # elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-        #     bneck_shape_dx = 1 / 100 * (bneck_shape - bneck_shape_mean)
-        #     bneck_mater_dx = 1 / 100 * (bneck_mater - bneck_mater_mean)
-        # else:
-        #     raise ValueError('data sampling mode not understood')
-        #
-        # # join gradients back together
-        # bneck.grad = self.join_bneck(bneck_mater_dx, bneck_shape_dx, bneck_illum_dx)
-
-        # do the optimizer step
-        optimizer.step()
         return loss
 
     def validation_step(self, batch, batch_nb):
@@ -377,10 +349,12 @@ class OriginalIGN(HardIGN):
         batch_size = img.size(0)
 
         # get bottleneck
-        bneck, enc_feat = self.model.forward_encoder(img)
+        bneck, enc_feat = self.model.forward_encoder(img, mode)
+        bneck_size = bneck.shape
+
         bneck_mater, \
         bneck_shape, \
-        bneck_illum = self.split_bneck(bneck, do_norm=self.hparams.norm_bneck)
+        bneck_illum = self.model.split.split_bneck(bneck)
 
         all_recon = []
         loss = {}
@@ -395,24 +369,25 @@ class OriginalIGN(HardIGN):
                 #     bneck_shape)
                 # bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
                 #     bneck_illum)
-                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
+                bneck = [bneck_mater, bneck_shape, bneck_illum]
                 bneck_mater = torch.roll(bneck_mater, 1, dims=0)
             elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
                 # bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
                 #     bneck_mater)
                 # bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
                 #     bneck_illum)
-                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
+                bneck = [bneck_mater, bneck_shape, bneck_illum]
                 bneck_shape = torch.roll(bneck_shape, 1, dims=0)
             elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
                 # bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
                 # bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-                bneck = self.join_bneck(bneck_mater, bneck_shape, bneck_illum)
+                bneck = [bneck_mater, bneck_shape, bneck_illum]
                 bneck_illum = torch.roll(bneck_illum, 1, dims=0)
             else:
                 raise ValueError('data sampling  mode not understood')
 
             # reconstruct image
+            bneck = self.model.split.join_bneck(bneck, bneck_size)
             img_hat = self.model.forward_decoder(img, bneck, enc_feat)
             all_recon.append(img_hat)
 
@@ -428,8 +403,7 @@ class OriginalIGN(HardIGN):
                 loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
         loss = {'val_%s' % k: v for k, v in loss.items()}
-        self.log('val_loss', loss['val_loss'], on_step=True, on_epoch=False,
-                 prog_bar=True, logger=True)
+        self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         if batch_nb % self.hparams.img_log_iter == 0:
             all_recon = torch.cat((img, *all_recon), dim=-2)
