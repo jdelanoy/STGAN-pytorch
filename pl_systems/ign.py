@@ -82,19 +82,19 @@ class HardIGN(pl.LightningModule):
             raise ValueError('data sampling mode not understood')
 
         # compute bneck invariancy loss
-        loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
+        loss['loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
 
         # compute L1 losses and perceptual losses on the generated image
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
+        loss['loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
 
         if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
             f_img = self.vgg16_f(img)
             f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+            loss['loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            loss['loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
@@ -284,19 +284,19 @@ class SoftIGN(HardIGN):
             raise ValueError('data sampling mode not understood')
 
         # compute bneck invariancy loss
-        loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
+        loss['loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
 
         # compute L1 losses and perceptual losses on the generated image
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
+        loss['loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
 
         if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
             f_img = self.vgg16_f(img)
             f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+            loss['loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            loss['loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
@@ -378,13 +378,13 @@ class OriginalIGN(HardIGN):
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
         loss = {}
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
+        loss['loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
 
         if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
             f_img = self.vgg16_f(img)
             f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+            loss['loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            loss['loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
 
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
