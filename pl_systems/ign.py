@@ -137,7 +137,7 @@ class HardIGN(pl.LightningModule):
             optimizer = torch.optim.Adam(self.model.parameters(),
                                          lr=0.0002, betas=(0.9, 0.999))
         elif self.hparams.optimizer.lower() == 'sgd':
-            optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-2, momentum=0.9,
+            optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9,
                                         weight_decay=5e-4, nesterov=True)
         else:
             raise ValueError('--optimizer should be one of [sgd, adam]')
@@ -197,7 +197,7 @@ class HardIGN(pl.LightningModule):
             parser.add_argument('--norm-bneck', default=True, type=bool)
 
             # optimizer parameters
-            parser.add_argument('--optimizer', default='adam', type=str)
+            parser.add_argument('--optimizer', default='sgd', type=str)
 
             # logging parameters
             parser.add_argument('--img-log-iter', default=500, type=str)
@@ -296,6 +296,7 @@ class OriginalIGN(HardIGN):
     def training_step(self, batch, batch_nb):
         img, label, mode = batch
         optimizer = self.optimizers()
+        optimizer.zero_grad()
 
         # get bottleneck
         bneck, enc_feat = self.model.forward_encoder(img)
@@ -383,10 +384,9 @@ class OriginalIGN(HardIGN):
 
         all_recon = []
         loss = {}
-
-        for shift in range(batch_size):
+        for ix in range(batch_size):
             # we do not need to swap properties if we do not log them
-            if batch_nb % self.hparams.img_log_iter != 0 and shift > 0:
+            if batch_nb % self.hparams.img_log_iter != 0 and ix > 0:
                 break
 
             # clamp features to be equal to the batch mean
@@ -395,22 +395,20 @@ class OriginalIGN(HardIGN):
                     bneck_shape)
                 bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
                     bneck_illum)
-                bneck_mater = torch.roll(bneck_mater, shift, dims=0)
                 bneck = self.join_bneck(bneck_mater, bneck_shape_mean, bneck_illum_mean)
+                bneck_mater = torch.roll(bneck_mater, 1, dims=0)
             elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
                 bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
                     bneck_mater)
                 bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(
                     bneck_illum)
-                bneck_shape = torch.roll(bneck_shape, shift, dims=0)
                 bneck = self.join_bneck(bneck_mater_mean, bneck_shape, bneck_illum_mean)
+                bneck_shape = torch.roll(bneck_shape, 1, dims=0)
             elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-                bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(
-                    bneck_shape)
-                bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(
-                    bneck_mater)
-                bneck_illum = torch.roll(bneck_illum, shift, dims=0)
+                bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
                 bneck = self.join_bneck(bneck_mater_mean, bneck_shape_mean, bneck_illum)
+                bneck_illum = torch.roll(bneck_illum, 1, dims=0)
             else:
                 raise ValueError('data sampling  mode not understood')
 
@@ -420,7 +418,7 @@ class OriginalIGN(HardIGN):
 
             # compute the loss only when we reconstruct the input image (not for the
             # images reconstructed when properties have been shifted
-            if shift == 0:
+            if ix == 0:
                 # f_img = self.vgg16_f(img)
                 # f_img_hat = self.vgg16_f(img_hat)
 
