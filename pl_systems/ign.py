@@ -20,7 +20,7 @@ class HardIGN(pl.LightningModule):
 
         # create model
         # self.model = UNet(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act)
-        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act)
+        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act, ign_grad=False)
 
         # dicts to store the images during train/val steps
         self.last_val_batch = {}
@@ -236,6 +236,8 @@ class HardIGN(pl.LightningModule):
             parser.add_argument('--lambda_G_perc', default=0.1, type=float)
             parser.add_argument('--lambda_G_style', default=0.1, type=float)
             parser.add_argument('--lambda_G_features', default=0.01, type=float)
+            parser.add_argument('--use_IGN_grad', dest='use_IGN_grad', default=False, action='store_true')
+            parser.add_argument('--do_mean_features', dest='do_mean_features', default=False, action='store_true')
             
             # optimizer parameters
             parser.add_argument('--optimizer', default='adam', type=str)
@@ -338,6 +340,7 @@ class OriginalIGN(HardIGN):
 
     def __init__(self, hparams):
         super(OriginalIGN, self).__init__(hparams)
+        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act,ign_grad=hparams.use_IGN_grad)
 
         self.example_input_array = [
             torch.rand(4, 3, 256, 256).clamp(-1, 1),
@@ -392,6 +395,9 @@ class OriginalIGN(HardIGN):
 
         loss = {}
         
+        if self.hparams.lambda_G_features > 0:
+            loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
+            
         loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
 
         if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
