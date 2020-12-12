@@ -338,19 +338,19 @@ class OriginalIGN(HardIGN):
         if torch.all(mode == 0):  # only MATERIAL changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-            bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
+            if hparams.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
             loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
             loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
         elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-            bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
+            if hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
             loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
             loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
         elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-            bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
+            if hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
             loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
             loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
         else:
