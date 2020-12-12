@@ -88,13 +88,7 @@ class HardIGN(pl.LightningModule):
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
-
-        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
-            f_img = self.vgg16_f(img)
-            f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+        self.reconstruction_loss(img_hat, img,loss)
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
@@ -207,6 +201,15 @@ class HardIGN(pl.LightningModule):
     def join_bneck(self, *bnecks):
         return torch.cat(bnecks, dim=1).view(*self.bneck_shape)
 
+    def reconstruction_loss(self,img_hat, img,loss):
+        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
+        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
+            f_img = self.vgg16_f(img)
+            f_img_hat = self.vgg16_f(img_hat)
+            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+
+
     @property
     def tb_add_image(self):
         # easier call to log images
@@ -292,44 +295,12 @@ class SoftIGN(HardIGN):
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
-
-        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
-            f_img = self.vgg16_f(img)
-            f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+        self.reconstruction_loss(img_hat, img,loss)
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
         return loss
 
-    def log_img_interpolation(self, batch):
-        # forward through the model and get loss
-        img, label, mode = batch
-        batch_size = img.size(0)
-
-        bneck, enc_feat = self.model.forward_encoder(img)
-        bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
-
-        all_recon = []
-        for shift in range(batch_size):
-            # only MATERIAL changes in the batch
-            if torch.all(mode == 0):
-                bneck_material = torch.roll(bneck_material, shift, dims=0)
-            # only GEOMETRY changes in the batch
-            elif torch.all(mode == 1):
-                bneck_shape = torch.roll(bneck_shape, shift, dims=0)
-            # only ILLUMINATION changes in the batch
-            elif torch.all(mode == 2):
-                bneck_illum = torch.roll(bneck_illum, shift, dims=0)
-
-            bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
-            all_recon.append(self.model.forward_decoder(img, bneck, enc_feat))
-
-        all_recon = torch.cat((img, *all_recon), dim=-2)
-        img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
-        self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
     def forward(self, img):
         img_hat = self.model(img)
@@ -398,18 +369,14 @@ class OriginalIGN(HardIGN):
         if self.hparams.lambda_G_features > 0:
             loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
             
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
-
-        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
-            f_img = self.vgg16_f(img)
-            f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
-
+        self.reconstruction_loss(img_hat, img,loss)
 
         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
         self.log_dict(loss, on_step=True, on_epoch=False)
         return loss
+
+
+
 
     def validation_step(self, batch, batch_nb):
         img, label, mode = batch
@@ -461,13 +428,7 @@ class OriginalIGN(HardIGN):
             # compute the loss only when we reconstruct the input image (not for the
             # images reconstructed when properties have been shifted
             if ix == 0:
-                # f_img = self.vgg16_f(img)
-                # f_img_hat = self.vgg16_f(img_hat)
-
-                loss['l1'] = F.l1_loss(img_hat, img)
-                # loss['perc'] = 0.1 * self.loss_P(f_img_hat, f_img)
-                # loss['style'] = 0.1 * self.loss_S(f_img_hat, f_img)
-                loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+                self.reconstruction_loss(img_hat, img,loss)
 
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
