@@ -355,21 +355,34 @@ class OriginalIGN(HardIGN):
         bneck_shape, \
         bneck_illum = self.model.split.split_bneck(bneck)
 
-        # clamp features to be equal to the batch mean
+        # Compute invariancy losses
+        loss_shape = 0
+        loss_illum = 0
+        loss_material = 0
+
+        # clamp features to be equal to the batch mean and compute loss
         if torch.all(mode == 0):  # only MATERIAL changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
             bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
+            loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+            loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
         elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
             bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
+            loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+            loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
         elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
             bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
+            loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+            loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
         else:
             raise ValueError('data sampling  mode not understood')
+        features_dist={"G/dist_shape":loss_shape,"G/dist_illum":loss_illum,"G/dist_material":loss_material}
+        self.log_dict(features_dist, on_step=True, on_epoch=False)
 
         # join bneck
         bneck = self.model.split.join_bneck(bneck, bneck_size)
