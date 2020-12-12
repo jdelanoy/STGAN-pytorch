@@ -311,7 +311,7 @@ class OriginalIGN(HardIGN):
 
     def __init__(self, hparams):
         super(OriginalIGN, self).__init__(hparams)
-        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act,ign_grad=hparams.use_IGN_grad)
+        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act,ign_grad=self.hparams.use_IGN_grad)
 
         self.example_input_array = [
             torch.rand(4, 3, 256, 256).clamp(-1, 1),
@@ -338,19 +338,19 @@ class OriginalIGN(HardIGN):
         if torch.all(mode == 0):  # only MATERIAL changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-            if hparams.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
+            if self.hparams.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
             loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
             loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
         elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
             bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-            if hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
+            if self.hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
             loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
             loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
         elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
             bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
             bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-            if hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
+            if self.hparams.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
             loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
             loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
         else:
@@ -429,7 +429,8 @@ class OriginalIGN(HardIGN):
             # images reconstructed when properties have been shifted
             if ix == 0:
                 self.reconstruction_loss(img_hat, img,loss)
-
+                loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+                
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
