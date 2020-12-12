@@ -328,7 +328,7 @@ class OriginalIGN(HardIGN):
         bneck_mater, \
         bneck_shape, \
         bneck_illum = self.model.split.split_bneck(bneck)
-
+        bneck = [bneck_mater, bneck_shape, bneck_illum]
         # Compute invariancy losses
         loss_shape = 0
         loss_illum = 0
