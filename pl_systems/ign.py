@@ -170,22 +170,22 @@ class HardIGN(pl.LightningModule):
     def configure_optimizers(self):
         if self.hparams.optimizer.lower() == 'adam':
             optimizer = torch.optim.Adam(self.model.parameters(),
-                                         lr=0.0002, betas=(0.9, 0.999))
+                                         lr=0.0001, betas=(0.9, 0.999))
         elif self.hparams.optimizer.lower() == 'sgd':
             optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9,
                                         weight_decay=5e-4, nesterov=True)
         else:
             raise ValueError('--optimizer should be one of [sgd, adam]')
-
-        scheduler = {
-            'scheduler': lr_scheduler.ReduceLROnPlateau(
-                optimizer=optimizer,
-                patience=5,
-                factor=0.1),
-            'monitor': 'val_loss',
-            'interval': 'epoch',
-            'frequency': 1
-        }
+        scheduler = lr_scheduler.StepLR(optimizer, 50000)
+        # scheduler = {
+        #     'scheduler': lr_scheduler.ReduceLROnPlateau(
+        #         optimizer=optimizer,
+        #         patience=5,
+        #         factor=0.1),
+        #     'monitor': 'val_loss',
+        #     'interval': 'epoch',
+        #     'frequency': 1
+        # }
         return [optimizer], [scheduler]
 
     def split_bneck(self, bneck, do_norm=False):
