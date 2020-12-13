@@ -169,10 +169,11 @@ class IntrinsicsSplit(autograd_fn.Function):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_ch, out_ch, ch, act, norm):
+    def __init__(self, in_ch, out_ch, ch, act, norm, ign_grad=False):
         super(UNet, self).__init__()
         self.up_and_concat = UpAndConcat()
-
+        self.ign_grad=ign_grad
+        
         # TODO: iterate over ch and automatically create the encoder and decoder
         assert len(ch) == 5
 
@@ -245,8 +246,8 @@ class UNet(nn.Module):
 
 
 class Autoencoder(UNet):
-    def __init__(self, in_ch, out_ch, ch, act, norm):
-        super(Autoencoder, self).__init__(in_ch, out_ch, ch, act, norm)
+    def __init__(self, in_ch, out_ch, ch, act, norm, ign_grad=False):
+        super(Autoencoder, self).__init__(in_ch, out_ch, ch, act, norm, ign_grad)
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         self.up_and_concat = UpAndConcat()
 

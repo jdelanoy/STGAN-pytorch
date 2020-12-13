@@ -127,17 +127,17 @@ class HardDisentangledSampler(torch.utils.data.sampler.Sampler):
             # see other objects in the dataset that we can sample according to the
             # given mode
             if mode == 0:  # only MATERIAL changes in the batch
-                materials = self.mats != material_idx
+                materials = True #self.mats != material_idx
                 geometries = self.geoms == geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 1:  # only GEOMETRY changes in the batch
                 materials = self.mats == material_idx
-                geometries = self.geoms != geometry_idx
+                geometries = True #self.geoms != geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 2:  # only ILLUMINATION changes in the batch
                 materials = self.mats == material_idx
                 geometries = self.geoms == geometry_idx
-                illumination = self.illums != illumination_idx
+                illumination = True #self.illums != illumination_idx
 
             # get the intersection of the possible factors to sample
             possible_idx = materials * geometries * illumination
@@ -182,9 +182,9 @@ class SoftDisentangledSampler(HardDisentangledSampler):
 
             # see other objects in the dataset that we can sample according to the
             # given mode
-            materials = self.mats != material_idx
-            geometries = self.geoms != geometry_idx
-            illumination = self.illums != illumination_idx
+            materials = True #self.mats != material_idx
+            geometries = True #self.geoms != geometry_idx
+            illumination = True #self.illums != illumination_idx
             if mode == 0:  # only MATERIAL is equal in the batch
                 materials = self.mats == material_idx
             if mode == 1:  # only GEOMETRY is equal in the batch
