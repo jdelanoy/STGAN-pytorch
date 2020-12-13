@@ -76,39 +76,60 @@ class BottleneckBlock(nn.Module):
 
 class IntrinsicsSplit(autograd_fn.Function):
     @staticmethod
-    def split_bneck(bneck):
-        batch_size = bneck.size(0)
-        step = bneck.size(1) // 3
+    def split_bneck(all_feat):
+        # skip_features is a tuple of features containing all the features that come from the
+        # encoder to the decoder. For instance, the bottleneck but also the skip connections.
+        assert isinstance(all_feat, tuple)
+        assert len(all_feat) > 0
 
-        bneck_material = bneck[:, :step].view(batch_size, -1)  # 1/3 of the features
-        bneck_shape = bneck[:, step:step * 2].view(batch_size, -1)
-        bneck_illum = bneck[:, step * 2:].view(batch_size, -1)
+        # get batch
+        batch_size = all_feat[0].size(0)
 
-        return bneck_material, bneck_shape, bneck_illum
+        # initialize structures to store the splitted features
+        feat_sizes = [None] * len(all_feat)
+        feat_mater = [None] * len(all_feat)
+        feat_shape = [None] * len(all_feat)
+        feat_illum = [None] * len(all_feat)
+
+        for i, feat in enumerate(all_feat):
+            step = feat.size(1) // 3  # approx. 33% of the features at each layer for each property
+
+            feat_sizes[i] = feat.shape  # we need to store the shape to reconstruct it later
+
+            feat_mater[i] = feat[:, :step].view(batch_size, -1)
+            feat_shape[i] = feat[:, step:step * 2].view(batch_size, -1)
+            feat_illum[i] = feat[:, step * 2:].view(batch_size, -1)
+
+        return (feat_mater, feat_shape, feat_illum), feat_sizes
 
     @staticmethod
-    def join_bneck(bnecks, bneck_size):
-        return torch.cat(bnecks, dim=1).view(bneck_size)
+    def join_bneck(all_feat, all_feat_size):
+        concat_feat = [None] * len(all_feat_size)
+
+        for i in range(len(all_feat_size)):
+            # concat material (0), geometry (1) and illumination(2) for each set of features
+            concat_feat[i] = torch.cat((all_feat[0][i], all_feat[1][i], all_feat[2][i]), dim=1)
+            concat_feat[i] = concat_feat[i].view(all_feat_size[i])
+
+        return concat_feat
 
     @staticmethod
-    def forward(ctx, bneck, mode):
+    def forward(ctx, all_features, mode):
         ctx.mode = mode
-        ctx.bneck_size = bneck.shape
-        ctx.bneck_mater, \
-        ctx.bneck_shape, \
-        ctx.bneck_illum = IntrinsicsSplit.split_bneck(bneck)
-        ctx.save_for_backward(bneck)
+        all_split_feats, ctx.feat_sizes = IntrinsicsSplit.split_bneck(all_features)
+        ctx.feat_mater, ctx.feat_shape, ctx.feat_illum = all_split_feats
+        ctx.save_for_backward(all_features)
 
-        return bneck
+        return all_features
 
     @staticmethod
     def backward(ctx, grad_output):
         # initialize all the variables
         clamping_weight = 1 / 100
         mode = ctx.mode
-        bneck_mater = ctx.bneck_mater
-        bneck_shape = ctx.bneck_shape
-        bneck_illum = ctx.bneck_illum
+        feat_mater = ctx.bneck_mater
+        feat_shape = ctx.bneck_shape
+        feat_illum = ctx.bneck_illum
 
         # we have to return as many gradients as inputs in forward (two in this case).
         # However, the mode does need a gradient thus return None as the second gradient
@@ -116,14 +137,14 @@ class IntrinsicsSplit(autograd_fn.Function):
         mode_grad = None
 
         # compute features mean
-        bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-        bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
-        bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+        feat_mater_mean = feat_mater.mean(dim=0, keepdim=True).expand_as(feat_mater)
+        feat_shape_mean = feat_shape.mean(dim=0, keepdim=True).expand_as(feat_shape)
+        feat_illum_mean = feat_illum.mean(dim=0, keepdim=True).expand_as(feat_illum)
 
         # get features gradient for each property
-        bneck_mater_grad, \
-        bneck_shape_grad, \
-        bneck_illum_grad = IntrinsicsSplit.split_bneck(grad_output)
+        split_feat_grad, feat_grad_size = IntrinsicsSplit.split_bneck(grad_output)
+        bneck_mater_grad, bneck_shape_grad, bneck_illum_grad = split_feat_grad
+        print(grad_output)
 
         # from S3.2 IGN paper: "we train all the neurons which correspond to the inactive
         # transformations with an error gradient equal to their difference from the mean.
@@ -131,21 +152,20 @@ class IntrinsicsSplit(autograd_fn.Function):
         # true training signal, otherwise it can overwhelm the reconstruction goal.
         # Empirically, a factor of 1/100 works well."
         if torch.all(mode == 0):  # only MATERIAL changes in the batch
-            bneck_shape_grad = clamping_weight * (bneck_shape - bneck_shape_mean)
-            bneck_illum_grad = clamping_weight * (bneck_illum - bneck_illum_mean)
+            bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
+            bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
         elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-            bneck_mater_grad = clamping_weight * (bneck_mater - bneck_mater_mean)
-            bneck_illum_grad = clamping_weight * (bneck_illum - bneck_illum_mean)
+            bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
+            bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
         elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-            bneck_shape_grad = clamping_weight * (bneck_shape - bneck_shape_mean)
-            bneck_mater_grad = clamping_weight * (bneck_mater - bneck_mater_mean)
+            bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
+            bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
         else:
             raise ValueError('data sampling mode not understood')
 
         grad_bneck = (bneck_mater_grad, bneck_shape_grad, bneck_illum_grad)
         grad_bneck = IntrinsicsSplit.join_bneck(grad_bneck, ctx.bneck_size)
-
-        return grad_bneck, None
+        return grad_output, None
 
 
 class UNet(nn.Module):
@@ -194,13 +214,16 @@ class UNet(nn.Module):
         for block in self.bottleneck:
             x = block(x)
 
-        x = self.split_bneck(x, mode)
+        # group all features into a tuple and call the split function to keep track of their
+        # special (custom) backward case
+        x_encoder, x = self.split_bneck((*x_encoder, x), mode)
 
         return x, x_encoder
 
     def split_bneck(self, x, mode):
         x = self.split.apply(x, mode)
-        return x
+        # split again the features in such a way that we return encoder skip connections and bneck
+        return x[:-1], x[-1]
 
     def forward_decoder(self, identity, bneck, encoder_feats):
         # Decoder
@@ -258,8 +281,8 @@ if __name__ == '__main__':
 
     act = 'leaky_relu'
     norm = 'none'
-    model = Autoencoder(in_ch=3, out_ch=3, ch=[64, 128, 256, 512, 512], act=act,
-                        norm=norm).cuda()
+    model = UNet(in_ch=3, out_ch=3, ch=[64, 128, 256, 512, 512], act=act,
+                 norm=norm).cuda()
 
     print('in shape', img.shape)
     img_hat = model(img, mode).clamp(0, 1)
