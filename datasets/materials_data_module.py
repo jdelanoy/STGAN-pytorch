@@ -34,7 +34,7 @@ class MaterialDataModule(pl.LightningDataModule):
         train_trf, val_trf = self.setup_transforms()
         self.data_train = MaterialDataset(self.root, 'train', self.attrs, train_trf)
         self.data_val = MaterialDataset(self.root, 'train', self.attrs, val_trf)
-        # self.data_test = MaterialDataset(self.root, 'test', self.attrs, val_trf)
+        self.data_test = MaterialDataset(self.root, 'test', self.attrs, val_trf)
 
     def setup_transforms(self):
         val_trf = transforms.Compose([
@@ -81,4 +81,14 @@ class MaterialDataModule(pl.LightningDataModule):
                           sampler=self.sampler)
                           # drop_last=True,
                           # shuffle=False)
+
+    def test_dataloader(self):
+        #sampler = HardDisentangledSampler(self.data_val, batch_size=self.batch_size)
+
+        return DataLoader(self.data_test,
+                          batch_size=self.batch_size,
+                          pin_memory=True,
+                          num_workers=self.num_workers,
+                          drop_last=True,
+                          shuffle=False)
 

@@ -317,6 +317,8 @@ class OriginalIGN(HardIGN):
             torch.rand(4, 3, 256, 256).clamp(-1, 1),
             torch.ones(8, 1),
         ]
+    def testing_step(self, batch, batch_nb):
+        self.test_disentangle(batch)
 
     def training_step(self, batch, batch_nb):
         img, label, mode = batch
