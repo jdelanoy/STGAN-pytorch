@@ -76,6 +76,7 @@ class ConvReluBn(nn.Module):
 
 
 def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dropout=0, vgg_like=False):
+    #TODO other ption for kernel sizes: 7,5,5,3...
     bias = norm == 'none'  # use bias only if we do not use a norm layer
 
     layers = []
@@ -95,43 +96,20 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dro
     return layers
 
 
-ch=[64, 128, 256, 512, 512]
-
 
 class Encoder(nn.Module):
     def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
         super(Encoder, self).__init__()
+        act='relu'
+        norm='batch'
+        bias = norm == 'none'
         enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,norm='batch',vgg_like=vgg_like) #NOTE bias=false for STGAN
         self.encoder = nn.ModuleList(enc_layers)
 
-    #return [encodings,bneck]
-    def encode(self,x):
-        # propagate encoder layers
-        encoded = []
-        x_ = x
-        for layer in self.encoder:
-            x_ = layer(x_)
-            encoded.append(x_)
-        return encoded, encoded[-1]
-
-
-class EncoderManu(nn.Module):
-    def __init__(self, act,norm):
-        super(EncoderManu, self).__init__()
-        bias = norm == 'none'
-        self.encoder = nn.ModuleList([
-            ConvReluBn(masked_conv7x7(3, ch[0], bias=bias), act, norm),
-            ConvReluBn(masked_conv5x5(ch[0], ch[1], bias=bias), act, norm),
-            ConvReluBn(masked_conv5x5(ch[1], ch[2], bias=bias), act, norm),
-            ConvReluBn(masked_conv3x3(ch[2], ch[3], bias=bias, stride=2), act, norm),
-            ConvReluBn(masked_conv3x3(ch[3], ch[4], bias=bias, stride=2), act, norm),
-        ])
-
         self.bottleneck = nn.ModuleList([
-            BottleneckBlock(ch[4], ch[4], act, norm, bias=bias),
-            BottleneckBlock(ch[4], ch[4], act, norm, bias=bias),
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
         ])
-
     #return [encodings,bneck]
     def encode(self,x):
         # Encoder
@@ -146,30 +124,20 @@ class EncoderManu(nn.Module):
         return x_encoder, x
 
 
-def build_decoder_convs_manu(act,norm):
-    bias = norm == 'none'
-    decoder = nn.ModuleList([
-        ConvReluBn(masked_conv3x3(ch[4]+1, ch[3], bias=bias), act, norm),
-        ConvReluBn(masked_conv3x3(ch[3], ch[2], bias=bias), act, norm),
-        ConvReluBn(masked_conv3x3(ch[2], ch[1], bias=bias), act, norm),
-        ConvReluBn(masked_conv3x3(ch[1], ch[0], bias=bias), act, norm),
-        ConvReluBn(masked_conv3x3(ch[0], 3, bias=bias), act, norm),
-    ])
-    last_conv = masked_conv3x3(3, 3, bias=True)
-    return decoder, last_conv
 
 def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like):
-    bias = norm == 'none'
+    bias=False
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
         #size if inputs/outputs
         dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
         dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
         enc_size = min(max_dim,conv_dim * 2 ** (i))
-
+        
+        if i == n_layers-1: dec_in = enc_size * 3
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-        if i >= n_layers - 1 - shortcut_layers and i != n_layers-1: # skip connection
-            dec_in = dec_in + enc_size
+        if i >= n_layers - 1 - shortcut_layers and i != n_layers-1: # skip connection: 2 features
+            dec_in = dec_in + enc_size + enc_size
         if (i==0): dec_out=conv_dim // 4
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
@@ -190,46 +158,28 @@ class Generator(nn.Module):
         self.n_attr_deconv = n_attr_deconv
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
 
-        # ##### build encoder
-        # self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
-        # ##### build decoder
-        # self.decoder, self.last_conv = build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like)
-
-
-        ############## archi from Manu
-        act='relu'
-        norm='batch'
-        bias = norm == 'none'
-        self.encoder = EncoderManu(act,norm)
-        #self.encoder_illum = EncoderManu(act,norm)
-        #self.encoder_shape = EncoderManu(act,norm)
-        self.decoder, self.last_conv = build_decoder_convs_manu(act,norm)
+        ##### build encoder
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder_mat = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder_illum = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder_shape = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        ##### build decoder
+        self.decoder, self.last_conv = build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like)
 
 
     #return [encodings,bneck]
     def encode(self,x):
-        return self.encoder.encode(x)
+        #return self.encoder.encode(x)
         enc_mat, bneck_mat = self.encoder_mat.encode(x)
         enc_illum, bneck_illum = self.encoder_illum.encode(x)
         enc_shape, bneck_shape = self.encoder_shape.encode(x)
-        return [enc_shape,enc_illum],[bneck_mat, bneck_shape, bneck_illum]
+        return [enc_mat,enc_shape,enc_illum],[bneck_mat, bneck_shape, bneck_illum]
 
     # #bneck is a list of the 3 bnecks, encoder_feats contains the feats from shape/illum
-    # def decode(self, bnecks, a, encoder_feats):
-    #     bneck=torch.cat(bnecks, dim=1)
-    #     # Decoder
-    #     for i, block in enumerate(self.decoder):
-    #         bneck = block(self.up(bneck))
-
-    #     x = self.last_conv(bneck)
-    #     x = torch.tanh(x)
-    #     return x
-
-
     def decode(self, bnecks, a, encodings):
-        bneck=bnecks #torch.cat(bnecks, dim=1)
+        bneck=torch.cat(bnecks, dim=1)
         #expand dimensions of a
-        a = a.view((bnecks.size(0), self.n_attrs, 1, 1))
+        a = a.view((bneck.size(0), self.n_attrs, 1, 1))
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
@@ -238,12 +188,13 @@ class Generator(nn.Module):
                 attr = a.expand((out.size(0), self.n_attrs, size, size))
                 out = torch.cat([out, attr], dim=1)
             if 0 < i <= self.shortcut_layers:
-                #do shortcut connection
-                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+                #do shortcut connection, not taking the first encoding (mat)
+                for enc in encodings[1:]:
+                    out = torch.cat([out, enc[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
         x = self.last_conv(out)
         x = torch.tanh(x)
-        return out
+        return x
 
     def forward(self, x, a):
         # propagate encoder layers
