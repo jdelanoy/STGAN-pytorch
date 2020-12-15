@@ -315,6 +315,11 @@ class STGANAgent(object):
 
         for batch in range(start_batch, self.config.max_epoch):
             for it in range(self.data_loader.train_iterations):
+                # Ia_sample, a_sample, mode = next(val_iter)
+                # Ia_sample = Ia_sample.to(self.device)
+                # a_sample = a_sample.to(self.device)
+                # b_samples = self.create_labels(a_sample, self.config.attrs)
+                # b_samples.insert(0, a_sample.to(self.device))  # reconstruction
 
                 # =================================================================================== #
                 #                             1. Preprocess input data                                #
@@ -446,7 +451,9 @@ class STGANAgent(object):
                     loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
                 else:
                     raise ValueError('data sampling  mode not understood')
-                features_dist={"G/dist_shape":loss_shape,"G/dist_illum":loss_illum,"G/dist_material":loss_material}
+                scalars["G/dist_shape"]=loss_shape
+                scalars["G/dist_illum"]=loss_illum
+                scalars["G/dist_material"]=loss_material
 
                 # join bneck
                 bneck = self.join_bneck(bneck, bneck_size)
@@ -457,6 +464,7 @@ class STGANAgent(object):
         
                 if self.config.lambda_G_features > 0:
                     invariancy_loss=(loss_shape + loss_illum + loss_material)*self.config.lambda_G_features
+                    g_loss += invariancy_loss
                     scalars['G/loss_invariancy'] = invariancy_loss
                     
 
