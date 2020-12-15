@@ -215,16 +215,18 @@ class STGANAgent(object):
         save_image(self.denorm(x_concat.data.cpu()),path,
                     nrow=1, padding=0)
 
-    def compute_disentangle_grid(x_real, a_att, path,writer=False):
+    def compute_disentangle_grid(self,x_real, a_att, path,writer=False):
         #encode all the batch
         encodings,bneck = self.G.encode(x_real)
         splitted_bneck = self.split_bneck(bneck)
         bneck_size = bneck.shape
-
+        batch_size=x_real.shape[0]
+        
         #for each branch
         for label in range(len(splitted_bneck)):
             x_fake_list = [torch.cat((x_real[0].unsqueeze(0),x_real),dim=0)]
-                #each column: all share the same embedding for the branchfor c in range(batch_size):
+            #each column: all share the same embedding for the branchfor c in range(batch_size):
+            for c in range(batch_size):
                 bneck_copy = [enc.clone() for enc in splitted_bneck] #[[enc.clone() for enc in encs] for encs in encodings]
                 common_features=bneck_copy[label][c]
                 #change encoding for all images
@@ -237,7 +239,7 @@ class STGANAgent(object):
                 bneck = self.join_bneck(bneck_copy, bneck_size)
                 fake_image=self.G.decode(bneck,a_att,encodings)
                 #add reference image
-                fake_image=torch.cat((img[c].unsqueeze(0),fake_image),dim=0)
+                fake_image=torch.cat((x_real[c].unsqueeze(0),fake_image),dim=0)
                 x_fake_list.append(fake_image)
             x_concat = torch.cat(x_fake_list, dim=3)
             save_image(self.denorm(x_concat.data.cpu()),path.format(label),
@@ -283,8 +285,8 @@ class STGANAgent(object):
 
         return bneck_material, bneck_shape, bneck_illum
 
-    def join_bneck(self, *bnecks):
-        return torch.cat(bnecks, dim=1).view(*self.bneck_shape)
+    def join_bneck(self, bnecks, bneck_size):
+        return torch.cat(bnecks, dim=1).view(bneck_size)
 
     def train(self):
         self.setup_all_optimizers()
@@ -293,6 +295,7 @@ class STGANAgent(object):
         val_iter = iter(self.data_loader.val_loader)
         Ia_sample, a_sample, mode = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
+        a_sample = a_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
         b_samples.insert(0, a_sample.to(self.device))  # reconstruction
 
@@ -517,9 +520,9 @@ class STGANAgent(object):
                     self.G.eval()
                     with torch.no_grad():
                         self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
-                        path=os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}"))
-                        print(path)
-                        self.compute_disentangle_grid(Ia_sample,a_sample,path,writer=True)
+                        #path=os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}"))
+                        #self.compute_disentangle_grid(Ia_sample,a_sample,path,writer=True)
+                        self.compute_disentangle_grid(Ia_sample,a_sample,os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}")),writer=True)
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
