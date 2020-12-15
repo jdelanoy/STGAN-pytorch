@@ -117,7 +117,7 @@ class Encoder(nn.Module):
 
 class EncoderManu(nn.Module):
     def __init__(self, act,norm):
-        super(Encoder2, self).__init__()
+        super(EncoderManu, self).__init__()
         bias = norm == 'none'
         self.encoder = nn.ModuleList([
             ConvReluBn(masked_conv7x7(3, ch[0], bias=bias), act, norm),
@@ -149,7 +149,7 @@ class EncoderManu(nn.Module):
 def build_decoder_convs_manu(act,norm):
     bias = norm == 'none'
     decoder = nn.ModuleList([
-        ConvReluBn(masked_conv3x3(ch[4], ch[3], bias=bias), act, norm),
+        ConvReluBn(masked_conv3x3(ch[4]+1, ch[3], bias=bias), act, norm),
         ConvReluBn(masked_conv3x3(ch[3], ch[2], bias=bias), act, norm),
         ConvReluBn(masked_conv3x3(ch[2], ch[1], bias=bias), act, norm),
         ConvReluBn(masked_conv3x3(ch[1], ch[0], bias=bias), act, norm),
@@ -241,7 +241,7 @@ class Generator(nn.Module):
                 #do shortcut connection
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
-        x = self.last_conv(bneck)
+        x = self.last_conv(out)
         x = torch.tanh(x)
         return out
 
