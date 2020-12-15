@@ -39,7 +39,7 @@ def make_dataset(root, mode, selected_attrs):
     if mode == 'train':
         lines = lines_train
     if mode == 'val': #put in first half a batch of test images, half of training images
-        lines = random.sample(lines_test,16)+random.sample(lines_train,16)
+        lines = random.sample(lines_test,4)+random.sample(lines_train,16)
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
@@ -214,10 +214,10 @@ class MaterialDataLoader(object):
         if mode == 'train':
             print("loading data")
             val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
-            val_set = MaterialDataset(root, 'train', selected_attrs, transform=val_transform)
-            sampler = DisentangledSampler(val_set, batch_size=batch_size)
-            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, sampler=sampler, num_workers=4)
-            #self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
+            #sampler = DisentangledSampler(val_set, batch_size=batch_size)
+            #self.val_loader = data.DataLoader(val_set, batch_size=batch_size, sampler=sampler, num_workers=4)
+            self.val_loader = data.DataLoader(val_set, batch_size=20, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
