@@ -293,7 +293,7 @@ class STGANAgent(object):
 
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
-        Ia_sample, a_sample, mode = next(val_iter)
+        Ia_sample, a_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
         a_sample = a_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
