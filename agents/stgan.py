@@ -291,7 +291,7 @@ class STGANAgent(object):
 
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
-        Ia_sample, a_sample, labels_sample = next(val_iter)
+        Ia_sample, a_sample, mode = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
         b_samples.insert(0, a_sample.to(self.device))  # reconstruction
@@ -318,10 +318,10 @@ class STGANAgent(object):
                 # =================================================================================== #
                 # fetch real images and labels
                 try:
-                    Ia, a_att, labels = next(data_iter)
+                    Ia, a_att, mode = next(data_iter)
                 except:
                     data_iter = iter(self.data_loader.train_loader)
-                    Ia, a_att, labels = next(data_iter)
+                    Ia, a_att, mode = next(data_iter)
 
                 # generate target domain labels randomly
                 b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
@@ -412,15 +412,56 @@ class STGANAgent(object):
                 self.LD.eval()
 
                 encodings,bneck = self.G.encode(Ia)
+
+                bneck_size = bneck.shape
+
+                bneck_mater, bneck_shape, bneck_illum = self.split_bneck(bneck)
+                bneck = [bneck_mater, bneck_shape, bneck_illum]
+                # Compute invariancy losses
+                loss_shape = 0
+                loss_illum = 0
+                loss_material = 0
+
+                # clamp features to be equal to the batch mean and compute loss
+                if torch.all(mode == 0):  # only MATERIAL changes in the batch
+                    bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                    bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+                    if self.config.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
+                    loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+                    loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+                elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
+                    bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+                    bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+                    if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
+                    loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+                    loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
+                elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
+                    bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                    bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+                    if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
+                    loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+                    loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
+                else:
+                    raise ValueError('data sampling  mode not understood')
+                features_dist={"G/dist_shape":loss_shape,"G/dist_illum":loss_illum,"G/dist_material":loss_material}
+
+                # join bneck
+                bneck = self.join_bneck(bneck, bneck_size)
+
                 Ia_hat=self.G.decode(bneck,a_att,encodings)
+                g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
+                g_loss = self.config.lambda_g_rec * g_loss_rec
+        
+                if self.config.lambda_G_features > 0:
+                    invariancy_loss=(loss_shape + loss_illum + loss_material)*self.config.lambda_G_features
+                    scalars['G/loss_invariancy'] = invariancy_loss
+                    
 
-                # target-to-original domain : Ia_hat -> reconstruction
-
-                #Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
+                Ia_hat=self.G.decode(bneck,a_att,encodings)
                 g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
                 g_loss = self.config.lambda_g_rec * g_loss_rec
 
-                #latent discriminator for attribute in the material part
+                #latent discriminator for attribute in the material part TODO mat part only
                 if self.config.use_latent_disc:
                     out_att = self.LD(z)
                     g_loss_latent = -self.regression_loss(out_att, a_att)
@@ -476,7 +517,9 @@ class STGANAgent(object):
                     self.G.eval()
                     with torch.no_grad():
                         self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
-                        self.compute_disentangle_grid(Ia_sample,a_sample,os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}")),writer=True)
+                        path=os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}"))
+                        print(path)
+                        self.compute_disentangle_grid(Ia_sample,a_sample,path,writer=True)
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
@@ -546,7 +589,7 @@ class STGANAgent(object):
 
         self.G.eval()
         with torch.no_grad():
-            for i, (x_real, c_org,_) in enumerate(tqdm_loader):
+            for i, (x_real, c_org) in enumerate(tqdm_loader):
                 c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
                 c_trg_list.insert(0, c_org)
                 self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
@@ -566,7 +609,7 @@ class STGANAgent(object):
 
         self.G.eval()
         with torch.no_grad():
-            for batch, (x_real, a_att, _) in enumerate(tqdm_loader): #MANU change to your outputs of the loader
+            for batch, (x_real, a_att) in enumerate(tqdm_loader): #MANU change to your outputs of the loader
                 x_real=x_real.to(self.device)
                 a_att=a_att.to(self.device)
                 path=os.path.join(self.config.result_dir, 'sample_disentangle_{}_{}_{}.jpg'.format(batch + 1,"{}",self.config.checkpoint))

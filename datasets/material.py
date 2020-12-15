@@ -105,7 +105,7 @@ class DisentangledSampler(torch.utils.data.sampler.Sampler):
             curr_idx = rand_idxs.pop(0)
 
             # make structure where we will append the indexes
-            yield curr_idx #, mode
+            yield curr_idx , mode
 
             # get current object properties
             material_idx = self.mats[curr_idx]
@@ -115,17 +115,17 @@ class DisentangledSampler(torch.utils.data.sampler.Sampler):
             # see other objects in the dataset that we can sample according to the
             # given mode
             if mode == 0:  # only MATERIAL changes in the batch
-                materials = self.mats != material_idx
+                materials = True #self.mats != material_idx
                 geometries = self.geoms == geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 1:  # only GEOMETRY changes in the batch
                 materials = self.mats == material_idx
-                geometries = self.geoms != geometry_idx
+                geometries = True #self.geoms != geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 2:  # only ILLUMINATION changes in the batch
                 materials = self.mats == material_idx
                 geometries = self.geoms == geometry_idx
-                illumination = self.illums != illumination_idx
+                illumination = True #self.illums != illumination_idx
 
             # get the intersection of the possible factors to sample
             possible_idx = materials * geometries * illumination
@@ -138,7 +138,7 @@ class DisentangledSampler(torch.utils.data.sampler.Sampler):
 
             # populate the batch with such idxs
             for i in range(self.batch_size - 1):
-                yield possible_idx[i] #, mode
+                yield possible_idx[i] , mode
 
     def __len__(self):
         return len(self.data_source)
@@ -173,19 +173,26 @@ class MaterialDataset(data.Dataset):
         self.mode = mode
         self.transform = transform
 
-    def __getitem__(self, index):
-        #index, mode = index_and_mode
+    def __getitem__(self, index_and_mode):
+        if self.mode in ['train']:
+            index, sampling_mode = index_and_mode
+        else:
+            index = index_and_mode
+        
         filename = os.path.join(self.root, self.files[index])
         label = self.labels[index]
-        mat=self.mats[index]
-        geom=self.geoms[index]
-        illum=self.illums[index]
+        #mat=self.mats[index]
+        #geom=self.geoms[index]
+        #illum=self.illums[index]
 
         image = Image.open(filename)
         if self.transform is not None:
             image = self.transform(image)
         #print([mat,geom,illum ])
-        return image, torch.FloatTensor(label), [mat,geom,illum ]#,self.files[index]
+        if self.mode in ['train']:
+            return image, torch.FloatTensor(label), sampling_mode
+        else:
+            return image, torch.FloatTensor(label)
 
     def __len__(self):
         return len(self.files)
@@ -194,7 +201,7 @@ class MaterialDataset(data.Dataset):
 
 class MaterialDataLoader(object):
     def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False):
-        if mode not in ['train', 'test','pretrain']:
+        if mode not in ['train', 'test']:
             return
 
         transform = []
@@ -204,11 +211,13 @@ class MaterialDataLoader(object):
         transform.append(transforms.ToTensor())
         transform.append(transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
 
-        if mode == 'train' or mode == 'pretrain':
+        if mode == 'train':
             print("loading data")
             val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
-            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
-            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+            val_set = MaterialDataset(root, 'train', selected_attrs, transform=val_transform)
+            sampler = DisentangledSampler(val_set, batch_size=batch_size)
+            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, sampler=sampler, num_workers=4)
+            #self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             transform.insert(0, transforms.RandomHorizontalFlip())
@@ -219,7 +228,8 @@ class MaterialDataLoader(object):
                 transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
             train_transform = transforms.Compose(transform)
             train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
-            self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
+            sampler = DisentangledSampler(train_set, batch_size=batch_size)
+            self.train_loader = data.DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
             test_transform = transforms.Compose(transform)
