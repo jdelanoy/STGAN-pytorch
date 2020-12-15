@@ -200,7 +200,7 @@ class STGANAgent(object):
             for im in range(fake_image.shape[0]):
                 #image=(fake_image[im].cpu().detach().numpy().transpose((1,2,0))*127.5+127.5).astype(np.uint8)
                 image=np.zeros((128,128,3), np.uint8)
-                for i in range(attr_diff.shape[1]):
+                for i in range(c_trg_sample.shape[1]):
                     cv2.putText(image, "%.2f"%(c_trg_sample[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
                     if self.config.use_classifier_generator:
                         cv2.putText(image, "%.2f"%(out_att[im][i].item()), (10,14*(i+7)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
@@ -247,7 +247,7 @@ class STGANAgent(object):
         val_iter = iter(self.data_loader.val_loader)
         Ia_sample, a_sample, labels_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
-        b_samples = self.create_labels(a_sample, self.config.attrs).to(self.device)
+        b_samples = self.create_labels(a_sample, self.config.attrs)
         b_samples.insert(0, a_sample.to(self.device))  # reconstruction
 
 
@@ -361,48 +361,48 @@ class STGANAgent(object):
                 # =================================================================================== #
                 #                               3. Train the generator                                #
                 # =================================================================================== #
-                    self.G.train()
-                    self.D.eval()
-                    self.LD.eval()
+                self.G.train()
+                self.D.eval()
+                self.LD.eval()
 
-                    encodings,bneck = self.G.encode(Ia)
-                    Ia_hat=self.G.decode(bneck,a_att,encodings)
+                encodings,bneck = self.G.encode(Ia)
+                Ia_hat=self.G.decode(bneck,a_att,encodings)
 
-                    # target-to-original domain : Ia_hat -> reconstruction
+                # target-to-original domain : Ia_hat -> reconstruction
 
-                    #Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
-                    g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
-                    g_loss = self.config.lambda_g_rec * g_loss_rec
+                #Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
+                g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
+                g_loss = self.config.lambda_g_rec * g_loss_rec
 
-                    #latent discriminator for attribute in the material part
-                    if self.config.use_latent_disc:
-                        out_att = self.LD(z)
-                        g_loss_latent = -self.regression_loss(out_att, a_att)
-                        g_loss += self.config.lambda_g_latent * g_loss_latent
-                        scalars['G/loss_latent'] = g_loss_latent.item()
+                #latent discriminator for attribute in the material part
+                if self.config.use_latent_disc:
+                    out_att = self.LD(z)
+                    g_loss_latent = -self.regression_loss(out_att, a_att)
+                    g_loss += self.config.lambda_g_latent * g_loss_latent
+                    scalars['G/loss_latent'] = g_loss_latent.item()
 
-                    if (self.config.use_image_disc or self.config.use_classifier_generator):
-                        # original-to-target domain : Ib_hat -> GAN + classif
-                        Ib_hat = self.G(Ia, b_att)
-                        out_disc, out_att = self.D(Ib_hat)
-                        # GAN loss
-                        if self.config.use_image_disc:                    
-                            g_loss_adv = - torch.mean(out_disc)
-                            g_loss += self.config.lambda_adv * g_loss_adv
-                            scalars['G/loss_adv'] = g_loss_adv.item()
-                        #output classifier loss
-                        if self.config.use_classifier_generator:
-                            lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-20000)/20000,1),0)
-                            g_loss_att = self.regression_loss(out_att, b_att)
-                            g_loss += lambda_new * g_loss_att
-                            scalars['G/loss_att'] = g_loss_att.item()
-                            scalars['G/lambda_new'] = lambda_new
+                if (self.config.use_image_disc or self.config.use_classifier_generator):
+                    # original-to-target domain : Ib_hat -> GAN + classif
+                    Ib_hat = self.G(Ia, b_att)
+                    out_disc, out_att = self.D(Ib_hat)
+                    # GAN loss
+                    if self.config.use_image_disc:                    
+                        g_loss_adv = - torch.mean(out_disc)
+                        g_loss += self.config.lambda_adv * g_loss_adv
+                        scalars['G/loss_adv'] = g_loss_adv.item()
+                    #output classifier loss
+                    if self.config.use_classifier_generator:
+                        lambda_new = self.config.lambda_g_att * max(min((self.current_iteration-20000)/20000,1),0)
+                        g_loss_att = self.regression_loss(out_att, b_att)
+                        g_loss += lambda_new * g_loss_att
+                        scalars['G/loss_att'] = g_loss_att.item()
+                        scalars['G/lambda_new'] = lambda_new
 
-                    # backward and optimize
-                    #self.optimize(self.optimizer_G,g_loss)
-                    # summarize
-                    scalars['G/loss_rec'] = g_loss_rec.item()
-                    scalars['G/loss'] = g_loss.item()
+                # backward and optimize
+                self.optimize(self.optimizer_G,g_loss)
+                # summarize
+                scalars['G/loss_rec'] = g_loss_rec.item()
+                scalars['G/loss'] = g_loss.item()
 
                 self.current_iteration += 1
 
