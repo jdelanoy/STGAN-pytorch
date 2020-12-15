@@ -3,52 +3,33 @@ import torch.nn as nn
 from torchsummary import summary
 import numpy as np
 
+from models.utils import activation_func, normalization_func
 
-class ConvGRUCell(nn.Module):
-    def __init__(self, n_attrs, in_dim, out_dim, in_state_dim, kernel_size=3):
-        super(ConvGRUCell, self).__init__()
-        self.n_attrs = n_attrs
-        self.upsample = nn.ConvTranspose2d(in_state_dim + n_attrs, out_dim, 4, 2, 1, bias=False)
-        self.reset_gate = nn.Sequential(
-            nn.Conv2d(in_dim + out_dim, out_dim, kernel_size, 1, (kernel_size - 1) // 2, bias=False),
-            nn.BatchNorm2d(out_dim),
-            nn.Sigmoid()
-        )
-        self.update_gate = nn.Sequential(
-            nn.Conv2d(in_dim + out_dim, out_dim, kernel_size, 1, (kernel_size - 1) // 2, bias=False),
-            nn.BatchNorm2d(out_dim),
-            nn.Sigmoid()
-        )
-        self.hidden = nn.Sequential(
-            nn.Conv2d(in_dim + out_dim, out_dim, kernel_size, 1, (kernel_size - 1) // 2, bias=False),
-            nn.BatchNorm2d(out_dim),
-            nn.Tanh()
-        )
 
-    def forward(self, input, old_state, attr):
-        n, _, h, w = old_state.size()
-        attr = attr.view((n, self.n_attrs, 1, 1)).expand((n, self.n_attrs, h, w))
-        state_hat = self.upsample(torch.cat([old_state, attr], 1))
-        r = self.reset_gate(torch.cat([input, state_hat], dim=1))
-        z = self.update_gate(torch.cat([input, state_hat], dim=1))
-        new_state = r * state_hat
-        hidden_info = self.hidden(torch.cat([input, new_state], dim=1))
-        output = (1-z) * state_hat + z * hidden_info
-        return output, new_state
+class ConvReluBn(nn.Module):
+    def __init__(self, conv_layer, activation='relu', normalization='batch'):
+        super(ConvReluBn, self).__init__()
+        self.conv = conv_layer
+        self.bn = normalization_func(normalization)(self.conv.out_channels)
+        self.activate = activation_func(activation)
 
-def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNorm2d, bias=False, dropout=0, vgg_like=False):
+    def forward(self, x):
+        x = self.activate(self.bn(self.conv(x)))
+        return x
+
+
+def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dropout=0, vgg_like=False):
+    bias = norm == 'none'  # use bias only if we do not use a norm layer
+
     layers = []
     in_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias)]
-        if i > 0: #NOTE >= in AttGAN
-            enc_layer.append(norm(out_channels, affine=True, track_running_stats=True))
-        enc_layer.append(nn.LeakyReLU(0.2, inplace=True))
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias),'leaky_relu',norm)]
         if (vgg_like and i >= 3 and i<n_layers-1):
-            enc_layer += [nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),norm(out_channels, affine=True, track_running_stats=True),nn.LeakyReLU(0.2, inplace=True)]
-            enc_layer += [nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),norm(out_channels, affine=True, track_running_stats=True),nn.LeakyReLU(0.2, inplace=True)]
+            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
+            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
         if dropout > 0:
             enc_layer.append(nn.Dropout(dropout))
         layers.append(nn.Sequential(*enc_layer))
@@ -56,20 +37,35 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm=nn.BatchNor
         out_channels=min(2*out_channels,max_dim)
     return layers
 
+
+class Encoder(nn.Module):
+    def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
+        super(Encoder, self).__init__()
+        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,norm='batch',vgg_like=vgg_like) #NOTE bias=false for STGAN
+        self.encoder = nn.ModuleList(enc_layers)
+
+    #return [encodings,bneck]
+    def encode(self,x):
+        # propagate encoder layers
+        encoded = []
+        x_ = x
+        for layer in self.encoder:
+            x_ = layer(x_)
+            encoded.append(x_)
+        return encoded, encoded[-1]
+
+
 class Generator(nn.Module):
-    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False):
+    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2,n_attr_deconv=1, vgg_like=False):
         super(Generator, self).__init__()
         self.n_attrs = attr_dim
         self.n_layers = n_layers
         self.shortcut_layers = min(shortcut_layers, n_layers - 1)
-        self.use_stu = use_stu
         self.n_attr_deconv = n_attr_deconv
 
         ##### build encoder
-        enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,bias=True,vgg_like=vgg_like) #NOTE bias=false for STGAN
-        self.encoder = nn.ModuleList(enc_layers)
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
 
-        self.stu = nn.ModuleList()
         ##### build decoder
         self.decoder = nn.ModuleList()
         for i in reversed(range(self.n_layers)):
@@ -82,75 +78,26 @@ class Generator(nn.Module):
             if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
             if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
                 dec_in = dec_in + enc_size
-                if use_stu:
-                    self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
-            #print(i,dec_out,dec_in,enc_size)
+            if (i==0): dec_out=conv_dim // 4
 
-            if i > 0:
-                if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
-                    self.decoder.append(nn.Sequential(
-                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True),
-                        nn.Conv2d(dec_out, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True)
-                    ))
-                else:
-                    self.decoder.append(nn.Sequential(
-                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True)
-                    ))
-            else: #last layer
-                if one_more_conv:
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1),
-                        #nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
-                        nn.BatchNorm2d(conv_dim // 4),
-                        nn.ReLU(inplace=True),
-                        nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=False),
-                        nn.Tanh()
-                    ))
-                else:
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, 3, 3, 1, 1),
-                        #nn.ConvTranspose2d(dec_in, 3, 4, 2, 1, bias=False),
-                        nn.Tanh()
-                    ))
+            self.add_decoder_layer(i,dec_in,dec_out,vgg_like=vgg_like,bias=False)
 
-    def decode(self, z, a):
-        #first decoder step
-        out = z
-        a = a.view((out.size(0), self.n_attrs, 1, 1))
-        for i, dec_layer in enumerate(self.decoder):
-            if i < self.n_attr_deconv:
-                #concatenate attribute
-                size = out.size(2)
-                attr = a.expand((out.size(0), self.n_attrs, size, size))
-                out = torch.cat([out, attr], dim=1)
-            out = dec_layer(out)
-        return out
+    def add_decoder_layer(self,i,dec_in,dec_out,vgg_like,bias):
+        dec_layer=[nn.UpsamplingNearest2d(scale_factor=2),ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
+        if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
+            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
+        if(i==0):
+            dec_layer+=[nn.ConvTranspose2d(dec_out, 3, 3, 1, 1, bias=False),nn.Tanh()]
+        self.decoder.append(nn.Sequential(*dec_layer))
 
-    def forward(self, x, a):
-        # propagate encoder layers
-        encoded = []
-        x_ = x
-        for layer in self.encoder:
-            x_ = layer(x_)
-            encoded.append(x_)
+    #return [encodings,bneck]
+    def encode(self,x):
+        return self.encoder.encode(x)
 
-        #first decoder step
-        out = encoded[-1]
-        stu_state = encoded[-1]
-        a = a.view((out.size(0), self.n_attrs, 1, 1))
-
+    def decode(self, z, a, encodings):
+        #expand dimensions of a
+        a = a.view((z.size(0), self.n_attrs, 1, 1))
+        out=z
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
                 #concatenate attribute
@@ -159,13 +106,14 @@ class Generator(nn.Module):
                 out = torch.cat([out, attr], dim=1)
             if 0 < i <= self.shortcut_layers:
                 #do shortcut connection
-                if self.use_stu:
-                    stu_out, stu_state = self.stu[i-1](encoded[-(i+1)], stu_state, a)
-                    out = torch.cat([out, stu_out], dim=1)
-                else:
-                    out = torch.cat([out, encoded[-(i+1)]], dim=1)
+                out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(out)
-        return out,encoded
+        return out
+
+    def forward(self, x, a):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(z,a,encodings)
 
 
 class DisentangledGenerator(nn.Module):
@@ -211,33 +159,22 @@ class DisentangledGenerator(nn.Module):
             print(i,dec_in,dec_out,enc_size)
 
             if i > 0:
-                if vgg_like and i > min(3,self.n_layers - 1 - self.shortcut_layers):
+                if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
                     self.decoder.append(nn.Sequential(
-                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
                         nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True),
-                        nn.Conv2d(dec_out, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True)
+                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch'),
+                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')
                     ))
                 else:
                     self.decoder.append(nn.Sequential(
-                        #nn.ConvTranspose2d(dec_in, dec_out, 4, 2, 1, bias=False),
                         nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, dec_out, 3, 1, 1),
-                        nn.BatchNorm2d(dec_out),
-                        nn.ReLU(inplace=True)
+                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')
                     ))
             else: #last layer
                 if one_more_conv:
                     self.decoder.append(nn.Sequential(
                         nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1),
-                        #nn.ConvTranspose2d(dec_in, conv_dim // 4, 4, 2, 1, bias=False),
-                        nn.BatchNorm2d(conv_dim // 4),
-                        nn.ReLU(inplace=True),
+                        ConvReluBn(nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1,bias=bias),'relu','batch'),
                         nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=False),
                         nn.Tanh()
                     ))
@@ -245,7 +182,6 @@ class DisentangledGenerator(nn.Module):
                     self.decoder.append(nn.Sequential(
                         nn.UpsamplingNearest2d(scale_factor=2),
                         nn.Conv2d(dec_in, 3, 3, 1, 1),
-                        #nn.ConvTranspose2d(dec_in, 3, 4, 2, 1, bias=False),
                         nn.Tanh()
                     ))
 
@@ -306,55 +242,44 @@ class DisentangledGenerator(nn.Module):
         out=self.decode_from_disentangled(encoded[-1],a,encodings)
         return out,encoded
 
+def FC_layers(in_dim,fc_dim,out_dim,tanh):
+    layers=[nn.Linear(in_dim, fc_dim),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Linear(fc_dim, out_dim)]
+    if tanh:
+        layers.append(nn.Tanh())
+    return nn.Sequential(*layers)
+
 
 class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, shortcut_layers=2,vgg_like=False,tanh=True):
         super(Latent_Discriminator, self).__init__()
-        #layers = []
-        # n_dis_layers = int(np.log2(image_size))
-        # layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm=nn.BatchNorm2d,bias=True,dropout=0.3,vgg_like=vgg_like)
-        # self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
+        layers = []
+        n_dis_layers = int(np.log2(image_size))
+        layers=get_encoder_layers(conv_dim,n_dis_layers, max_dim, norm='batch',dropout=0.3,vgg_like=vgg_like)
+        self.conv = nn.Sequential(*layers[n_layers-shortcut_layers:])
 
-        # out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
-        if (tanh):
-            self.fc_att = nn.Sequential(
-                nn.Linear(fc_dim*2, fc_dim),
-                nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                nn.Linear(fc_dim, attr_dim),
-                nn.Tanh()
-            )
-        else:
-            self.fc_att = nn.Sequential(
-                nn.Linear(fc_dim*2, fc_dim),
-                nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                nn.Linear(fc_dim, attr_dim)
-            )
+        out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
+        self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
+
     def forward(self, x):
-        #y = self.conv(x)
-        #y = y.view(y.size()[0], -1)
-        logit_att = self.fc_att(x)
+        y = self.conv(x)
+        y = y.view(y.size()[0], -1)
+        logit_att = self.fc_att(y)
         return logit_att
+
 
 class Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
         super(Discriminator, self).__init__()
         layers = []
-        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm=nn.InstanceNorm2d,bias=True)
+        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm='batch')
         self.conv = nn.Sequential(*layers)
 
         feature_size = image_size // 2**n_layers
         out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
-        self.fc_adv = nn.Sequential(
-            nn.Linear(out_conv * feature_size ** 2, fc_dim),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            nn.Linear(fc_dim, 1)
-        )
-        self.fc_att = nn.Sequential(
-            nn.Linear(out_conv * feature_size ** 2, fc_dim),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            nn.Linear(fc_dim, attr_dim),
-            nn.Tanh()
-        )
+        self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
+        self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
 
     def forward(self, x):
         y = self.conv(x)
@@ -364,52 +289,17 @@ class Discriminator(nn.Module):
         return logit_adv, logit_att
 
 
-class Classifier(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, n_classes=10, conv_dim=64, fc_dim=1024, n_layers=5, vgg_like=False):
-        super(Classifier, self).__init__()
-        layers = []
-        layers=get_encoder_layers(conv_dim,n_layers, max_dim, norm=nn.InstanceNorm2d,bias=True, vgg_like=vgg_like)
-        self.conv = nn.Sequential(*layers)
-
-        feature_size = image_size // 2**n_layers
-        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
-
-        self.features = nn.Sequential(
-            nn.Linear(out_conv * feature_size ** 2, fc_dim*2),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        )
-
-        self.fc_att = nn.Sequential(
-            nn.Linear(fc_dim * 2, fc_dim),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            nn.Linear(fc_dim, n_classes)
-            #nn.Tanh()
-        )
-
-    def forward(self, x):
-        encoded = []
-        y = x
-        for layer in self.conv:
-            y = layer(y)
-            encoded.append(y)
-        #y = self.conv(x)
-        y = y.view(y.size()[0], -1)
-        y=self.features(y)
-        encoded.append(y)
-        logit_att = self.fc_att(y)
-        return encoded,logit_att
-
 
 
 if __name__ == '__main__':
-    gen = Generator(5, conv_dim=32, n_layers=6, shortcut_layers=0, max_dim=512, use_stu=False, one_more_conv=False)
+    gen = Generator(5, conv_dim=32, n_layers=6, shortcut_layers=0, max_dim=512,vgg_like=True)
 
     print(gen)
     #summary(gen, [(3, 128, 128), (5,)], device='cpu')
 
-    dis = Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=7)
-    print(dis)
-    summary(dis, (3, 128, 128), device='cpu')
+    # dis = Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=7)
+    # print(dis)
+    # #summary(dis, (3, 128, 128), device='cpu')
 
-    dis = Latent_Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=6,shortcut_layers=2)
-    print(dis)
+    # dis = Latent_Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=6,shortcut_layers=2)
+    # print(dis)

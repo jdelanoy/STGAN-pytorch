@@ -20,7 +20,7 @@ from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
 
 from datasets import *
-from models.stgan import Generator, Discriminator, Latent_Discriminator, Classifier, DisentangledGenerator
+from models.stgan import Generator, Discriminator, Latent_Discriminator
 #from models.vggPerceptualLoss import VGGPerceptualLoss
 from models.perceptual_loss import PerceptualLoss, GradientL1Loss
 from utils.misc import print_cuda_statistics
@@ -40,18 +40,16 @@ class STGANAgent(object):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
-        
-        self.G = DisentangledGenerator(len(self.config.attrs), 2,self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers, use_stu=self.config.use_stu, one_more_conv=self.config.one_more_conv,n_attr_deconv=self.config.n_attr_deconv, vgg_like=True)
+
+        self.G = Generator(len(self.config.attrs),self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers,n_attr_deconv=self.config.n_attr_deconv, vgg_like=True)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
-        self.LDs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, len(self.config.attrs), self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, branch) for branch in range(1)]
-        self.Adv_Cs = [Latent_Discriminator(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.g_layers, 0,tanh=False) for n_class in [13,6]] 
-        self.Cs = [Classifier(self.config.image_size, self.config.max_conv_dim>>1, n_class, self.config.g_conv_dim>>1, self.config.d_fc_dim, self.config.d_layers, vgg_like=True) for n_class in [13,6]] 
+        self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.g_conv_dim, self.config.d_fc_dim, self.config.g_layers, 0)
+
         print(self.G)
-        print(self.Adv_Cs)
         if self.config.use_image_disc or self.config.use_classifier_generator:
             print(self.D)
         if self.config.use_latent_disc:
-            print(self.LDs)
+            print(self.LD)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
@@ -82,16 +80,11 @@ class STGANAgent(object):
             }
             torch.save(state, os.path.join(self.config.checkpoint_dir, '{}_{}.pth.tar'.format(name,self.current_iteration)))
 
-        if self.config.mode == "pretrain":
-            [save_one_model(self.Cs[i],self.optimizer_Cs[i],'C'+str(i)) for i in range(2)]
-            return
         save_one_model(self.G,self.optimizer_G,'G')
-        [save_one_model(self.Adv_Cs[i],self.optimizer_Adv_Cs[i],'Adv_C'+str(i)) for i in range(len(self.Adv_Cs))]
-        [save_one_model(self.Cs[i],self.optimizer_Cs[i],'newC'+str(i)) for i in range(2)]
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             save_one_model(self.D,self.optimizer_D,'D')
         if self.config.use_latent_disc:
-            [save_one_model(self.LDs[i],self.optimizer_LDs[i],'LD'+str(i)) for i in range(len(self.LDs))]
+            save_one_model(self.LD,self.optimizer_LD,'LD')
 
     def load_checkpoint(self):
         def load_one_model(model,optimizer,name, iter=self.config.checkpoint):
@@ -101,19 +94,15 @@ class STGANAgent(object):
             model.to(self.device)
             if optimizer != None:
                 optimizer.load_state_dict(G_checkpoint['optimizer'])
-                
-        [load_one_model(self.Cs[i],None,'C'+str(i),60000) for i in range(2)]
-        
+                        
         if self.config.checkpoint is None:
             return
 
         load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
-        [load_one_model(self.Adv_Cs[i],self.optimizer_Adv_Cs[i] if self.config.mode=='train' else None,'Adv_C'+str(i)) for i in range(len(self.Adv_Cs))]
-        [load_one_model(self.Cs[i],self.optimizer_Cs[i] if self.config.mode=='train' else None,'newC'+str(i)) for i in range(2)]
         if (self.config.use_image_disc or self.config.use_classifier_generator):
             load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
         if self.config.use_latent_disc:
-            [load_one_model(self.LDs[i],self.optimizer_LDs[i] if self.config.mode=='train' else None,'LD'+str(i)) for i in range(len(self.LDs))]
+            load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
 
         self.current_iteration = self.config.checkpoint
 
@@ -126,6 +115,15 @@ class STGANAgent(object):
     def build_scheduler(self,optimizer,not_load=False):
         last_epoch=-1 if (self.config.checkpoint == None or not_load) else self.config.checkpoint
         return optim.lr_scheduler.StepLR(optimizer, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+    def setup_all_optimizers(self):
+        self.optimizer_G = self.build_optimizer(self.G, self.config.g_lr)
+        self.optimizer_D = self.build_optimizer(self.D, self.config.d_lr)
+        self.optimizer_LD = self.build_optimizer(self.LD, self.config.ld_lr)
+        self.load_checkpoint() #load checkpoint if needed and LOAD CLASSIFIERS
+        self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
+        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.config.use_image_disc or self.config.use_classifier_generator))
+        self.lr_scheduler_LD = self.build_scheduler(self.optimizer_LD, not self.config.use_latent_disc)
+
     def optimize(self,optimizer,loss):
         optimizer.zero_grad()
         loss.backward(retain_graph=True)
@@ -153,6 +151,7 @@ class STGANAgent(object):
             scalars['G/loss_rec_perc'] = perc_loss.item()
             g_loss_rec = perc_loss + l1_loss
         return g_loss_rec
+
     def gradient_penalty(self, y, x):
         """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
         weight = torch.ones(y.size()).to(self.device)
@@ -223,12 +222,10 @@ class STGANAgent(object):
     ################################################################
     ##################### MAIN FUNCTIONS ###########################
     def run(self):
-        assert self.config.mode in ['train', 'test','pretrain']
+        assert self.config.mode in ['train', 'test']
         try:
             if self.config.mode == 'train':
                 self.train()
-            elif self.config.mode == 'pretrain':
-                self.pretrain_classif()
             else:
                 #self.test_pca()
                 self.test()
@@ -245,76 +242,8 @@ class STGANAgent(object):
 
 
 
-    def pretrain_classif(self):
-        ############### create networks and optimizers
-        #first is geom, second is illum
-        [C.to(self.device) for C in self.Cs]
-        print(self.Cs)
-        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr) for C in self.Cs]
-        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C) for optimizer_C in self.optimizer_Cs]
-
-        start_time = time.time()
-        start_batch = self.current_iteration // self.data_loader.train_iterations
-        print(self.current_iteration,self.data_loader.train_iterations,start_batch)
-        for batch in range(start_batch, self.config.max_epoch):
-            for it in range(self.data_loader.train_iterations):
-                # ============================1. Preprocess input data=============================== #
-                # fetch real images and labels
-                try:
-                    Ia, a_att, labels = next(data_iter)
-                except:
-                    data_iter = iter(self.data_loader.train_loader)
-                    Ia, a_att, labels = next(data_iter)
-                Ia = Ia.to(self.device)         # input images
-                #labels = labels .to(self.device)
-                scalars = {}
-
-                # ============================2. Pretrain shape/illum classif======================== #
-                for i,C in enumerate(self.Cs):
-                    C.train()
-                    _,pred = C(Ia)
-                    loss = self.classification_loss(pred,labels[i+1].to(self.device))
-                    # backward and optimize
-                    self.optimize(self.optimizer_Cs[i],loss)
-                    # summarize
-                    scalars['C/loss{}'.format(i)] = loss.item()
-                    
-                # ================================3. Miscellaneous=================================== #
-                self.current_iteration += 1
-                [lr_scheduler_C.step() for lr_scheduler_C in self.lr_scheduler_Cs]
-                # print summary on terminal and on tensorboard
-                if self.current_iteration % self.config.summary_step == 0:
-                    et = time.time() - start_time
-                    et = str(datetime.timedelta(seconds=et))[:-7]
-                    print('Elapsed [{}], Iteration [{}/{}] Epoch [{}/{}] (Iteration {})'.format(et, it, self.data_loader.train_iterations, batch, self.config.max_epoch,self.current_iteration))
-                    for tag, value in scalars.items():
-                        self.writer.add_scalar(tag, value, self.current_iteration)
-                # save checkpoint
-                if self.current_iteration % self.config.checkpoint_step == 0:
-                    self.save_checkpoint()
-
-
-
     def train(self):
-        self.optimizer_G = self.build_optimizer(self.G, self.config.g_lr)
-        self.optimizer_D = self.build_optimizer(self.D, self.config.d_lr)
-        self.optimizer_LDs = [self.build_optimizer(LD, self.config.ld_lr) for LD in self.LDs]
-        self.optimizer_Adv_Cs = [self.build_optimizer(Adv_C, self.config.ld_lr) for Adv_C in self.Adv_Cs]
-        self.load_checkpoint() #load checkpoint if needed and LOAD CLASSIFIERS
-
-        self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
-        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.config.use_image_disc or self.config.use_classifier_generator))
-        self.lr_scheduler_LDs = [self.build_scheduler(optimizer_LD, not self.config.use_latent_disc) for optimizer_LD in self.optimizer_LDs]
-        self.lr_scheduler_Adv_Cs = [self.build_scheduler(optimizer_Adv_C) for optimizer_Adv_C in self.optimizer_Adv_Cs]
-
-        self.optimizer_Cs = [self.build_optimizer(C, self.config.g_lr*0.1) for C in self.Cs]
-        self.lr_scheduler_Cs = [self.build_scheduler(optimizer_C,True) for optimizer_C in self.optimizer_Cs]
-
-
-        if self.cuda and self.config.ngpu > 1:
-            self.G = nn.DataParallel(self.G, device_ids=list(range(self.config.ngpu)))
-            self.D = nn.DataParallel(self.D, device_ids=list(range(self.config.ngpu)))
-            #self.LD = [nn.DataParallel(self.LD, device_ids=list(range(self.config.ngpu)))  for self.LD in self.LDs]
+        self.setup_all_optimizers()
 
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
@@ -323,9 +252,7 @@ class STGANAgent(object):
         b_samples = self.create_labels(a_sample, self.config.attrs)
         b_samples.insert(0, a_sample)  # reconstruction
 
-        # self.g_lr = self.lr_scheduler_G.get_lr()[0]
-        # self.d_lr = self.lr_scheduler_D.get_lr()[0]
-        # self.ld_lr = self.lr_scheduler_LDs[0].get_lr()[0]
+
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
 
@@ -355,32 +282,13 @@ class STGANAgent(object):
                 # generate target domain labels randomly
                 b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
-                # a_att_copy = a_att.clone()
-                # b_att_copy = b_att.clone()
-                # a_att_copy = a_att_copy.to(self.device)           # original domain labels
-                # b_att_copy = b_att_copy.to(self.device)           # target domain labels
-
                 Ia = Ia.to(self.device)         # input images
                 a_att = a_att.to(self.device)   # labels for computing classification loss
                 b_att = b_att.to(self.device)   # labels for computing classification loss
 
-                attr_diff = b_att - a_att #b_att_copy - a_att_copy
-                attr_diff = attr_diff if self.config.use_attr_diff else b_att
+                # attr_diff = b_att - a_att #b_att_copy - a_att_copy
+                # attr_diff = attr_diff if self.config.use_attr_diff else b_att
                 scalars = {}
-
-
-                #go through C and G and backward reconstrution loss + classif loss through C (only after X iterations)
-
-                self.G.train()
-                [C.train() for C in self.Cs]
-                #get features from pretrained classifiers and image reconstruction
-                through_C = [C(Ia) for C in self.Cs]
-                encodings = [net[0] for net in through_C]
-                preds_classif = [net[1] for net in through_C]
-                #print (encodings)
-#                Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
-                Ia_hat,z = self.G(Ia, a_att- a_att if self.config.use_attr_diff else a_att,encodings)
-
 
 
                 # =================================================================================== #
@@ -397,7 +305,7 @@ class STGANAgent(object):
                         d_loss = 0
                         if self.config.use_image_disc:
                             # fake image Ib_hat
-                            Ib_hat,_ = self.G(Ia, attr_diff,encodings)
+                            Ib_hat = self.G(Ia, b_att)
                             out_disc_fake, _ = self.D(Ib_hat.detach())
                             #adversarial losses
                             d_loss_adv_real = - torch.mean(out_disc_real)
@@ -420,7 +328,7 @@ class STGANAgent(object):
                             d_loss += self.config.lambda_d_att * d_loss_att
                             #train with generator images
                             # if(self.current_iteration>30000):
-                            #     Ia_hat,_ = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy)
+                            #     Ia_hat = self.G(Ia, a_att)
                             #     _, out_att_fake = self.D(Ia_hat.detach())
                             #     d_loss_att2 = self.classification_loss(out_att_fake, a_att)
                             #     scalars['D/loss_att2'] = d_loss_att2.item()
@@ -438,75 +346,46 @@ class STGANAgent(object):
                 # =================================================================================== #
                 if self.config.use_latent_disc:
                     self.G.eval()
-                    [self.LD.train() for self.LD in self.LDs]
+                    self.LD.train()
                     # compute disc loss on encoded image
-                    #_,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
+                    _,z = self.G.encode(Ia)
 
                     for _ in range(self.config.n_critic_ld):
-                        for branch in range(1):
-#                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
-                            out_att = self.LDs[branch](z[-branch-1])
-
-                            #classification loss
-                            ld_loss = self.regression_loss(out_att, a_att)*self.config.lambda_ld
-                            
-                            # backward and optimize
-                            self.optimize(self.optimizer_LDs[branch],ld_loss)
-                            # summarize
-                            scalars['LD/loss{}'.format(branch)] = ld_loss.item()
-
-                # =================================================================================== #
-                #                            3. Train the adversarial classifier                      #
-                # =================================================================================== #
-                self.G.eval()
-                [Adv_C.train() for Adv_C in self.Adv_Cs]
-                # compute disc loss on encoded image
-                #_,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
-
-                for _ in range(self.config.n_critic_ld):
-                    for i,Adv_C in enumerate(self.Adv_Cs):
-                        pred = Adv_C(z[-1])
+                        out_att = self.LD(z)
                         #classification loss
-                        loss = self.classification_loss(pred,labels[i+1].to(self.device))
-
+                        ld_loss = self.regression_loss(out_att, a_att)*self.config.lambda_ld
                         # backward and optimize
-                        self.optimize(self.optimizer_Adv_Cs[i],loss)
+                        self.optimize(self.optimizer_LD,ld_loss)
                         # summarize
-                        scalars['Adv_C/loss{}'.format(i)] = loss.item()
+                        scalars['LD/loss'] = ld_loss.item()
+
 
                 # =================================================================================== #
                 #                               3. Train the generator                                #
                 # =================================================================================== #
-                if True: #(self.current_iteration + 1) % self.config.n_critic == 0: # and i>20000:  
                     self.G.train()
                     self.D.eval()
-                    [LD.eval() for LD in self.LDs]
-                    [Adv_C.eval() for Adv_C in self.Adv_Cs]
+                    self.LD.eval()
+
+                    encodings,bneck = self.G.encode(Ia)
+                    Ia_hat=self.G.decode(bneck,a_att,encodings)
 
                     # target-to-original domain : Ia_hat -> reconstruction
+
                     #Ia_hat,z = self.G(Ia, a_att_copy - a_att_copy if self.config.use_attr_diff else a_att_copy,encodings)
                     g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
                     g_loss = self.config.lambda_g_rec * g_loss_rec
 
-                    # adversarial classification
-                    for i,Adv_C in enumerate(self.Adv_Cs):
-                        pred = Adv_C(z[-1])
-                        g_adv_c_loss = -self.classification_loss(pred,labels[i+1].to(self.device))
-                        g_loss += self.config.lambda_g_adv_c * g_adv_c_loss
-                        scalars['G/loss_adv_c{}'.format(i)] = g_adv_c_loss.item()
-
-                    #latent discriminator for attribtues
+                    #latent discriminator for attribute in the material part
                     if self.config.use_latent_disc:
-                        for branch in range(1):
-#                        for branch in range(self.config.shortcut_layers,self.config.shortcut_layers+1):
-                            out_att = self.LDs[branch](z[-branch-1])
-                            g_loss_latent = -self.regression_loss(out_att, a_att)
-                            g_loss += self.config.lambda_g_latent * g_loss_latent
-                            scalars['G/loss_latent{}'.format(branch)] = g_loss_latent.item()
+                        out_att = self.LD(z)
+                        g_loss_latent = -self.regression_loss(out_att, a_att)
+                        g_loss += self.config.lambda_g_latent * g_loss_latent
+                        scalars['G/loss_latent'] = g_loss_latent.item()
 
                     if (self.config.use_image_disc or self.config.use_classifier_generator):
                         # original-to-target domain : Ib_hat -> GAN + classif
-                        Ib_hat,_ = self.G(Ia, attr_diff,encodings)
+                        Ib_hat = self.G(Ia, b_att)
                         out_disc, out_att = self.D(Ib_hat)
                         # GAN loss
                         if self.config.use_image_disc:                    
@@ -521,17 +400,6 @@ class STGANAgent(object):
                             scalars['G/loss_att'] = g_loss_att.item()
                             scalars['G/lambda_new'] = lambda_new
 
-                    for i,C in enumerate(self.Cs):
-                        classif_loss = self.classification_loss(preds_classif[i],labels[i+1].to(self.device))
-                        if (self.current_iteration>20000): g_loss += 10*classif_loss
-                        scalars['C/loss{}'.format(i)] = classif_loss.item()
-
-                    self.optimizer_G.zero_grad()
-                    if (self.current_iteration>20000): [optimizer_C.zero_grad() for optimizer_C in self.optimizer_Cs]
-                    g_loss.backward(retain_graph=True)
-                    self.optimizer_G.step()
-                    if (self.current_iteration>20000): [optimizer_C.step() for optimizer_C in self.optimizer_Cs]
-
                     # backward and optimize
                     #self.optimize(self.optimizer_G,g_loss)
                     # summarize
@@ -545,9 +413,9 @@ class STGANAgent(object):
                 # =================================================================================== #''
                 self.lr_scheduler_G.step()
                 self.lr_scheduler_D.step()
-                [self.lr_scheduler_LD.step() for self.lr_scheduler_LD in self.lr_scheduler_LDs]
+                self.lr_scheduler_LD.step()
                 scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-                scalars['lr/ld_lr'] = self.lr_scheduler_LDs[0].get_lr()[0]
+                scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
                 scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
 
                 # print summary on terminal and on tensorboard
