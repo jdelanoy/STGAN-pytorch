@@ -187,14 +187,12 @@ class STGANAgent(object):
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
                 c_trg_list.append(c_trg.to(self.device))
         return c_trg_list
+
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path,writer=False):
         x_sample = x_sample.to(self.device)
         x_fake_list = [x_sample]
         for c_trg_sample in c_sample_list:
-            attr_diff = c_trg_sample.to(self.device) - c_org_sample.to(self.device)
-            attr_diff = attr_diff if self.config.use_attr_diff else c_trg_sample #* self.config.thres_int
-            encodings = [C(x_sample)[0] for C in self.Cs]
-            fake_image,_=self.G(x_sample, attr_diff.to(self.device),encodings)
+            fake_image=self.G(x_sample, c_trg_sample)
             if self.config.use_classifier_generator:
                 _, out_att = self.D(fake_image.detach())
 
@@ -249,8 +247,8 @@ class STGANAgent(object):
         val_iter = iter(self.data_loader.val_loader)
         Ia_sample, a_sample, labels_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
-        b_samples = self.create_labels(a_sample, self.config.attrs)
-        b_samples.insert(0, a_sample)  # reconstruction
+        b_samples = self.create_labels(a_sample, self.config.attrs).to(self.device)
+        b_samples.insert(0, a_sample.to(self.device))  # reconstruction
 
 
         data_iter = iter(self.data_loader.train_loader)

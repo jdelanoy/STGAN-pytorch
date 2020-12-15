@@ -87,7 +87,7 @@ class Generator(nn.Module):
         if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
         if(i==0):
-            dec_layer+=[nn.ConvTranspose2d(dec_out, 3, 3, 1, 1, bias=False),nn.Tanh()]
+            dec_layer+=[nn.ConvTranspose2d(dec_out, 3, 3, 1, 1, bias=True),nn.Tanh()]
         self.decoder.append(nn.Sequential(*dec_layer))
 
     #return [encodings,bneck]
