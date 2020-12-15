@@ -6,6 +6,63 @@ import numpy as np
 from models.utils import activation_func, normalization_func
 
 
+
+
+
+
+def masked_conv1x1(inp, out, stride=1, padding=0, bias=False):
+    return nn.Conv2d(inp, out, 1, stride, padding, bias=bias)
+
+def masked_conv3x3(inp, out, stride=1, padding=1, bias=False):
+    return nn.Conv2d(inp, out, 3, stride, padding, bias=bias)
+
+def masked_conv5x5(inp, out, stride=2, padding=2, bias=False):
+    return nn.Conv2d(inp, out, 5, stride, padding, bias=bias)
+
+def masked_conv7x7(inp, out, stride=2, padding=3, bias=False):
+    return nn.Conv2d(inp, out, 7, stride, padding, bias=bias)
+
+class UpAndConcat(nn.Module):
+    def __init__(self):
+        super(UpAndConcat, self).__init__()
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+
+        # input is CHW
+        diffY, diffX = x2.size()[2] - x1.size()[2], x2.size()[3] - x1.size()[3]
+
+        # pad the image to allow for arbitrary inputs
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+
+        # concat both inputs
+        x = torch.cat([x2, x1], dim=1)
+        return x
+
+class BottleneckBlock(nn.Module):
+
+    def __init__(self, in_ch, out_ch, activation='relu', normalization='bn', bias=False):
+        super(BottleneckBlock, self).__init__()
+
+        self.activate = activation_func(activation)
+        self.c1 = masked_conv3x3(in_ch, out_ch, bias=bias)
+        self.bn1 = normalization_func(normalization)(out_ch)
+
+        self.c2 = masked_conv3x3(out_ch, out_ch, bias=bias)
+        self.bn2 = normalization_func(normalization)(out_ch)
+
+    def forward(self, x):
+        identity = x
+
+        x = self.activate(self.bn1(self.c1(x)))
+        x = self.bn2(self.c2(x))
+        x = self.activate(x + identity)
+        return x
+
+
+
+
 class ConvReluBn(nn.Module):
     def __init__(self, conv_layer, activation='relu', normalization='batch'):
         super(ConvReluBn, self).__init__()
@@ -38,6 +95,9 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dro
     return layers
 
 
+ch=[64, 128, 256, 512, 512]
+
+
 class Encoder(nn.Module):
     def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
         super(Encoder, self).__init__()
@@ -55,6 +115,37 @@ class Encoder(nn.Module):
         return encoded, encoded[-1]
 
 
+class Encoder2(nn.Module):
+    def __init__(self, act,norm):
+        super(Encoder2, self).__init__()
+        bias = norm == 'none'
+        self.encoder = nn.ModuleList([
+            ConvReluBn(masked_conv7x7(3, ch[0], bias=bias), act, norm),
+            ConvReluBn(masked_conv5x5(ch[0], ch[1], bias=bias), act, norm),
+            ConvReluBn(masked_conv5x5(ch[1], ch[2], bias=bias), act, norm),
+            ConvReluBn(masked_conv3x3(ch[2], ch[3], bias=bias, stride=2), act, norm),
+            ConvReluBn(masked_conv3x3(ch[3], ch[4], bias=bias, stride=2), act, norm),
+        ])
+
+        self.bottleneck = nn.ModuleList([
+            BottleneckBlock(ch[4], ch[4], act, norm, bias=bias),
+            BottleneckBlock(ch[4], ch[4], act, norm, bias=bias),
+        ])
+
+    #return [encodings,bneck]
+    def encode(self,x):
+        # Encoder
+        x_encoder = []
+        for block in self.encoder:
+            x = block(x)
+            x_encoder.append(x)
+
+        # Bottleneck
+        for block in self.bottleneck:
+            x = block(x)
+        return x_encoder, x
+
+
 class Generator(nn.Module):
     def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2,n_attr_deconv=1, vgg_like=False):
         super(Generator, self).__init__()
@@ -63,24 +154,39 @@ class Generator(nn.Module):
         self.shortcut_layers = min(shortcut_layers, n_layers - 1)
         self.n_attr_deconv = n_attr_deconv
 
-        ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        # ##### build encoder
+        # self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
 
-        ##### build decoder
-        self.decoder = nn.ModuleList()
-        for i in reversed(range(self.n_layers)):
-            #size if inputs/outputs
-            dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
-            dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
-            enc_size = min(max_dim,conv_dim * 2 ** (i))
+        # ##### build decoder
+        # self.decoder = nn.ModuleList()
+        # for i in reversed(range(self.n_layers)):
+        #     #size if inputs/outputs
+        #     dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
+        #     dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
+        #     enc_size = min(max_dim,conv_dim * 2 ** (i))
 
-            #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-            if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-            if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
-                dec_in = dec_in + enc_size
-            if (i==0): dec_out=conv_dim // 4
+        #     #if i == self.n_layers-1 or attr_each_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+        #     if i >= self.n_layers - self.n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+        #     if i >= self.n_layers - 1 - self.shortcut_layers and i != self.n_layers-1: # skip connection
+        #         dec_in = dec_in + enc_size
+        #     if (i==0): dec_out=conv_dim // 4
 
-            self.add_decoder_layer(i,dec_in,dec_out,vgg_like=vgg_like,bias=False)
+        #     self.add_decoder_layer(i,dec_in,dec_out,vgg_like=vgg_like,bias=False)
+
+        ############## archi from Manu
+        act='relu'
+        norm='batch'
+        bias = norm == 'none'
+        self.encoder = Encoder2(act,norm)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.decoder = nn.ModuleList([
+            ConvReluBn(masked_conv3x3(ch[4], ch[3], bias=bias), act, norm),
+            ConvReluBn(masked_conv3x3(ch[3], ch[2], bias=bias), act, norm),
+            ConvReluBn(masked_conv3x3(ch[2], ch[1], bias=bias), act, norm),
+            ConvReluBn(masked_conv3x3(ch[1], ch[0], bias=bias), act, norm),
+            ConvReluBn(masked_conv3x3(ch[0], 3, bias=bias), act, norm),
+        ])
+        self.last_conv = masked_conv3x3(3, 3, bias=True)
 
     def add_decoder_layer(self,i,dec_in,dec_out,vgg_like,bias):
         dec_layer=[nn.UpsamplingNearest2d(scale_factor=2),ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
@@ -94,7 +200,17 @@ class Generator(nn.Module):
     def encode(self,x):
         return self.encoder.encode(x)
 
-    def decode(self, z, a, encodings):
+    def decode(self, bneck, a, encoder_feats):
+        # Decoder
+        for i, block in enumerate(self.decoder):
+            bneck = block(self.up(bneck))
+
+        x = self.last_conv(bneck)
+        x = torch.tanh(x)
+        return x
+
+
+    def decode2(self, z, a, encodings):
         #expand dimensions of a
         a = a.view((z.size(0), self.n_attrs, 1, 1))
         out=z
