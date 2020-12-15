@@ -466,11 +466,6 @@ class STGANAgent(object):
                     invariancy_loss=(loss_shape + loss_illum + loss_material)*self.config.lambda_G_features
                     g_loss += invariancy_loss
                     scalars['G/loss_invariancy'] = invariancy_loss
-                    
-
-                Ia_hat=self.G.decode(bneck,a_att,encodings)
-                g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
-                g_loss = self.config.lambda_g_rec * g_loss_rec
 
                 #latent discriminator for attribute in the material part TODO mat part only
                 if self.config.use_latent_disc:
