@@ -18,6 +18,7 @@ import numpy as np
 import cv2
 from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
+import torchvision.utils as tvutils
 
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator, GeneratorWithBranches
@@ -254,6 +255,33 @@ class STGANAgent(object):
             if writer:
                 self.writer.add_image('disentangle_{}'.format(label), make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
                                         self.current_iteration)
+    def log_img_interpolation(self, img, label, mode):
+        # forward through the model and get loss
+        batch_size = img.size(0)
+        enc_feat,bneck = self.G.encode(x_real)
+        bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
+        bneck_size = bneck.shape
+
+        all_recon = []
+        for _ in range(batch_size):
+            bneck = [bneck_mater, bneck_shape, bneck_illum]
+            # only MATERIAL changes in the batch
+            if torch.all(mode == 0):
+                bneck_material = torch.roll(bneck_material, 1, dims=0)
+            # only GEOMETRY changes in the batch
+            elif torch.all(mode == 1):
+                bneck_shape = torch.roll(bneck_shape, 1, dims=0)
+            # only ILLUMINATION changes in the batch
+            elif torch.all(mode == 2):
+                bneck_illum = torch.roll(bneck_illum, 1, dims=0)
+
+            bneck = self.G.join_bneck(bneck, bneck_size)
+            img_hat = self.G.decode(bneck,a_att,enc_feat)
+            all_recon.append(img_hat)
+
+        all_recon = torch.cat((img, *all_recon), dim=-2)
+        img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
+        self.writer.add_image('roll', img_log, self.current_iteration)
 
     ################################################################
     ##################### MAIN FUNCTIONS ###########################
@@ -515,6 +543,7 @@ class STGANAgent(object):
                         #path=os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}"))
                         #self.compute_disentangle_grid(Ia_sample,a_sample,path,writer=True)
                         self.compute_disentangle_grid(Ia_sample,a_sample,os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}")),writer=True)
+                        self.log_img_interpolation(Ia,a_att,mode)
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
