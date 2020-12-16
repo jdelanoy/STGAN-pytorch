@@ -258,7 +258,7 @@ class STGANAgent(object):
     def log_img_interpolation(self, img, label, mode):
         # forward through the model and get loss
         batch_size = img.size(0)
-        enc_feat,bneck = self.G.encode(x_real)
+        enc_feat,bneck = self.G.encode(img)
         bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
         bneck_size = bneck.shape
 
@@ -276,7 +276,7 @@ class STGANAgent(object):
                 bneck_illum = torch.roll(bneck_illum, 1, dims=0)
 
             bneck = self.G.join_bneck(bneck, bneck_size)
-            img_hat = self.G.decode(bneck,a_att,enc_feat)
+            img_hat = self.G.decode(bneck,label,enc_feat)
             all_recon.append(img_hat)
 
         all_recon = torch.cat((img, *all_recon), dim=-2)
