@@ -635,7 +635,7 @@ class STGANAgent(object):
                 x_real=x_real.to(self.device)
                 a_att=a_att.to(self.device)
                 path=os.path.join(self.config.result_dir, 'sample_disentangle_{}_{}_{}.jpg'.format(batch + 1,"{}",self.config.checkpoint))
-                compute_disentangle_grid(x_real,a_att,path)
+                self.compute_disentangle_grid(x_real,a_att,path)
                 
 
   
