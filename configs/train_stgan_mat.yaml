@@ -1,5 +1,5 @@
 # meta
-exp_name: manu_dset_disentangle_IGN_branches
+exp_name: manu_dset_disentangle_IGN_test
 mode: train
 cuda: true 
 ngpu: 1
@@ -15,7 +15,7 @@ image_size: 128
 gaussian_stddev: 0.5
 
 #which part activate
-use_latent_disc: true #latent discriminator to not encode attribute
+use_latent_disc: false #latent discriminator to not encode attribute
 use_image_disc: false #GAN
 use_classifier_generator: false
 rec_loss: 'l1' #Can be l1, l2, perceptual
@@ -29,13 +29,13 @@ g_conv_dim: 32
 d_conv_dim: 32
 d_fc_dim: 512
 max_conv_dim: 512
-vgg_like: True
+vgg_like: False #True
 g_layers: 6
 d_layers: 5
 #divide into branches, skip connections, where to put the attributes
 shortcut_layers: 0
 n_attr_deconv: 0 #in how many deconv layer add the attribute:0 = no attribute, 1=normal (just concat to bneck)
-use_branches : true
+use_branches : false
 #other
 attrs: [glossy]
 checkpoint: ~
