@@ -145,12 +145,12 @@ class STGANAgent(object):
         return F.cross_entropy(logit,target) 
     def reconstruction_loss(self, Ia, Ia_hat, scalars):
         if self.config.rec_loss == 'l1':
-            g_loss_rec = torch.mean(torch.abs(Ia - Ia_hat))
+            g_loss_rec = F.l1_loss(Ia - Ia_hat)
         elif self.config.rec_loss == 'l2':
             g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
         elif self.config.rec_loss == 'perceptual' or self.config.rec_loss == 'watson':
             perc_loss = self.perceptual_loss(Ia, Ia_hat) * self.config.perc_loss_rec_weight
-            l1_loss=torch.mean(torch.abs(Ia - Ia_hat))
+            l1_loss=F.l1_loss(Ia - Ia_hat)
             scalars['G/loss_rec_l1'] = l1_loss.item()
             scalars['G/loss_rec_perc'] = perc_loss.item()
             g_loss_rec = perc_loss + l1_loss
@@ -283,6 +283,14 @@ class STGANAgent(object):
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
         self.writer.add_image('roll', img_log, self.current_iteration)
 
+
+
+
+
+
+
+
+
     ################################################################
     ##################### MAIN FUNCTIONS ###########################
     def run(self):
@@ -307,6 +315,14 @@ class STGANAgent(object):
 
 
 
+
+
+
+
+
+
+    ########################################################################################
+    #####################                 TRAINING               ###########################
     def train(self):
         self.setup_all_optimizers()
 
@@ -354,13 +370,10 @@ class STGANAgent(object):
                 b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
                 Ia = Ia.to(self.device)         # input images
-                a_att = a_att.to(self.device)   # labels for computing classification loss
-                b_att = b_att.to(self.device)   # labels for computing classification loss
+                a_att = a_att.to(self.device)   # attribute of image
+                b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
 
-                # attr_diff = b_att - a_att #b_att_copy - a_att_copy
-                # attr_diff = attr_diff if self.config.use_attr_diff else b_att
                 scalars = {}
-
 
                 # =================================================================================== #
                 #                             2. Train the discriminator                              #
@@ -478,6 +491,7 @@ class STGANAgent(object):
                 Ia_hat=self.G.decode(bneck,a_att,encodings)
                 g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
                 g_loss = self.config.lambda_g_rec * g_loss_rec
+                scalars['G/loss_rec'] = g_loss_rec.item()
         
                 if self.config.lambda_G_features > 0:
                     invariancy_loss=(loss_shape + loss_illum + loss_material)*self.config.lambda_G_features
@@ -511,7 +525,6 @@ class STGANAgent(object):
                 # backward and optimize
                 self.optimize(self.optimizer_G,g_loss)
                 # summarize
-                scalars['G/loss_rec'] = g_loss_rec.item()
                 scalars['G/loss'] = g_loss.item()
 
                 self.current_iteration += 1
@@ -550,6 +563,15 @@ class STGANAgent(object):
 
 
 
+
+
+
+
+
+
+
+    ####################################################################################
+    #####################                 TEST               ###########################
     def test_classif(self):
         self.load_checkpoint()
         [C.eval() for C in self.Cs]
