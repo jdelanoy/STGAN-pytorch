@@ -267,7 +267,7 @@ class STGANAgent(object):
             bneck = [bneck_mater, bneck_shape, bneck_illum]
             # only MATERIAL changes in the batch
             if torch.all(mode == 0):
-                bneck_material = torch.roll(bneck_material, 1, dims=0)
+                bneck_mater = torch.roll(bneck_mater, 1, dims=0)
             # only GEOMETRY changes in the batch
             elif torch.all(mode == 1):
                 bneck_shape = torch.roll(bneck_shape, 1, dims=0)
@@ -275,7 +275,7 @@ class STGANAgent(object):
             elif torch.all(mode == 2):
                 bneck_illum = torch.roll(bneck_illum, 1, dims=0)
 
-            bneck = self.G.join_bneck(bneck, bneck_size)
+            bneck = self.G.join_bneck(bneck)
             img_hat = self.G.decode(bneck,label,enc_feat)
             all_recon.append(img_hat)
 
