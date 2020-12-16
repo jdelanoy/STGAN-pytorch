@@ -76,7 +76,7 @@ class ConvReluBn(nn.Module):
 
 
 def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dropout=0, vgg_like=False):
-    #TODO other ption for kernel sizes: 7,5,5,3...
+    #TODO other option for kernel sizes: 7,5,5,3...
     bias = norm == 'none'  # use bias only if we do not use a norm layer
 
     layers = []
@@ -125,7 +125,7 @@ class Encoder(nn.Module):
 
 
 
-def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like):
+def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like, n_branches):
     bias=False
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
@@ -134,10 +134,10 @@ def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_
         dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
         enc_size = min(max_dim,conv_dim * 2 ** (i))
         
-        if i == n_layers-1: dec_in = enc_size * 3
+        if i == n_layers-1: dec_in = enc_size * n_branches
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
-        if i >= n_layers - 1 - shortcut_layers and i != n_layers-1: # skip connection: 2 features
-            dec_in = dec_in + enc_size + enc_size
+        if i >= n_layers - 1 - shortcut_layers and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
+            dec_in = dec_in + min(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
@@ -160,22 +160,78 @@ class Generator(nn.Module):
 
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
-        self.encoder_mat = Encoder(conv_dim,n_layers,max_dim,vgg_like)
-        self.encoder_illum = Encoder(conv_dim,n_layers,max_dim,vgg_like)
-        self.encoder_shape = Encoder(conv_dim,n_layers,max_dim,vgg_like)
         ##### build decoder
-        self.decoder, self.last_conv = build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like)
+        self.decoder, self.last_conv = build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like,n_branches=1)
 
 
     #return [encodings,bneck]
     def encode(self,x):
-        #return self.encoder.encode(x)
+        return self.encoder.encode(x)
+
+    # #bneck is a list of the 3 bnecks, encoder_feats contains the feats from shape/illum
+    def decode(self, bneck, a, encodings):
+        #expand dimensions of a
+        a = a.view((bneck.size(0), self.n_attrs, 1, 1))
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            if i < self.n_attr_deconv:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                out = torch.cat([out, attr], dim=1)
+            if 0 < i <= self.shortcut_layers:
+                #do shortcut connection, not taking the first encoding (mat)
+                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = dec_layer(self.up(out))
+        x = self.last_conv(out)
+        x = torch.tanh(x)
+        return x
+
+    def forward(self, x, a):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(z,a,encodings)
+
+    def split_bneck(self, bneck, do_norm=False):
+        self.bneck_shape = bneck.shape
+        batch_size = bneck.size(0)
+        step = bneck.size(1) // 3
+
+        bneck_material = bneck[:, :step] #.view(batch_size, -1)  # 1/3 of the features
+        bneck_shape = bneck[:, step:step * 2]#.view(batch_size, -1)
+        bneck_illum = bneck[:, step * 2:]#.view(batch_size, -1)
+
+        if do_norm:
+            bneck_material = bneck_material / bneck_material.norm(p=2)
+            bneck_shape = bneck_shape / bneck_shape.norm(p=2)
+            bneck_illum = bneck_illum / bneck_illum.norm(p=2)
+
+        return bneck_material, bneck_shape, bneck_illum
+
+    def join_bneck(self, bnecks):
+        return torch.cat(bnecks, dim=1)#.view(self.bneck_shape)
+
+
+class GeneratorWithBranches(Generator):
+    def __init__(self, attr_dim, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2,n_attr_deconv=1, vgg_like=False):
+        super(GeneratorWithBranches, self).__init__(attr_dim, conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like)
+
+        ##### build encoder
+        self.encoder_mat = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder_illum = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder_shape = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        ##### build decoder
+        self.decoder, self.last_conv = build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_attr_deconv, vgg_like, n_branches=3)
+
+
+    #return [encodings,bneck]
+    def encode(self,x):
         enc_mat, bneck_mat = self.encoder_mat.encode(x)
         enc_illum, bneck_illum = self.encoder_illum.encode(x)
         enc_shape, bneck_shape = self.encoder_shape.encode(x)
         return [enc_mat,enc_shape,enc_illum],[bneck_mat, bneck_shape, bneck_illum]
 
-    # #bneck is a list of the 3 bnecks, encoder_feats contains the feats from shape/illum
+    # #bneck is a list of the 3 bnecks, encoder_feats contains the feats from mat/shape/illum
     def decode(self, bnecks, a, encodings):
         bneck=torch.cat(bnecks, dim=1)
         #expand dimensions of a
@@ -195,138 +251,27 @@ class Generator(nn.Module):
         x = self.last_conv(out)
         x = torch.tanh(x)
         return x
+    #only view them as one dimensional tensors
+    def split_bneck(self, bneck, do_norm=False):
+        self.bneck_shape = bneck[0].shape
+        batch_size = bneck[0].size(0)
 
-    def forward(self, x, a):
-        # propagate encoder layers
-        encodings,z = self.encode(x)
-        return self.decode(z,a,encodings)
+        bneck_material = bneck[0]#.view(batch_size, -1)
+        bneck_shape = bneck[1]#.view(batch_size, -1)
+        bneck_illum = bneck[2]#.view(batch_size, -1)
+
+        if do_norm:
+            bneck_material = bneck_material / bneck_material.norm(p=2)
+            bneck_shape = bneck_shape / bneck_shape.norm(p=2)
+            bneck_illum = bneck_illum / bneck_illum.norm(p=2)
+
+        return bneck_material, bneck_shape, bneck_illum
+    #only restore the shape
+    def join_bneck(self, bnecks):
+        return bnecks
+        #return [bneck.view(self.bneck_shape) for bneck in bnecks]
 
 
-class DisentangledGenerator(nn.Module):
-    def __init__(self, attr_dim, n_embeddings, conv_dim=64, n_layers=5, max_dim=1024, shortcut_layers=2, stu_kernel_size=3, use_stu=True, one_more_conv=True, n_attr_deconv=1, vgg_like=False, image_size=128, fc_dim=256):
-        super(DisentangledGenerator, self).__init__()
-        self.n_attrs = attr_dim
-        self.n_layers = n_layers
-        self.shortcut_layers = min(shortcut_layers, n_layers - 1)
-        self.use_stu = use_stu
-        self.n_attr_deconv = n_attr_deconv
-
-        ##### build encoder
-        enc_layers=get_encoder_layers(conv_dim>>1,n_layers,max_dim>>1,bias=True,vgg_like=vgg_like) #NOTE bias=false for STGAN
-        self.encoder = nn.ModuleList(enc_layers)
-
-        feature_size = image_size // 2**n_layers
-        out_conv = min(max_dim>>1,(conv_dim>>1) * 2 ** (n_layers - 1))
-
-        self.features = nn.Sequential(
-            nn.Linear(out_conv * feature_size ** 2, fc_dim*2),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        )
-
-        self.stu = nn.ModuleList()
-        ##### build decoder
-        self.decoder_fc = nn.Sequential(
-            nn.Linear(fc_dim*2*(n_embeddings+1),fc_dim*4),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        )
-        self.decoder = nn.ModuleList()
-        for i in reversed(range(self.n_layers+1)):
-            #size if inputs/outputs
-            dec_out = min(max_dim,conv_dim * 2 ** (i-1)) #NOTE ou i in STGAN
-            dec_in = min(max_dim,conv_dim * 2 ** (i)) #NOTE ou i+1 in STGAN
-            enc_size = min(max_dim,conv_dim * 2 ** (i))>>1
-
-            #if i == self.n_layers-1: dec_in = enc_size
-            if i >= self.n_layers - self.n_attr_deconv + 1: dec_in = dec_in + attr_dim #concatenate attribute
-            if i >= self.n_layers - self.shortcut_layers: # and i != self.n_layers-1: # skip connection 
-                dec_in = dec_in + n_embeddings * (enc_size)
-                if use_stu:
-                    self.stu.append(ConvGRUCell(self.n_attrs, enc_size, enc_size, min(max_dim,enc_size*2), stu_kernel_size))
-            print(i,dec_in,dec_out,enc_size)
-
-            if i > 0:
-                if vgg_like and i >= min(3,self.n_layers - 1 - self.shortcut_layers):
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch'),
-                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')
-                    ))
-                else:
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')
-                    ))
-            else: #last layer
-                if one_more_conv:
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        ConvReluBn(nn.Conv2d(dec_in, conv_dim // 4, 3, 1, 1,bias=bias),'relu','batch'),
-                        nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=False),
-                        nn.Tanh()
-                    ))
-                else:
-                    self.decoder.append(nn.Sequential(
-                        nn.UpsamplingNearest2d(scale_factor=2),
-                        nn.Conv2d(dec_in, 3, 3, 1, 1),
-                        nn.Tanh()
-                    ))
-
-    def decode(self, z, a):
-        #first decoder step
-        out = z
-        a = a.view((out.size(0), self.n_attrs, 1, 1))
-        for i, dec_layer in enumerate(self.decoder):
-            if i < self.n_attr_deconv:
-                #concatenate attribute
-                size = out.size(2)
-                attr = a.expand((out.size(0), self.n_attrs, size, size))
-                out = torch.cat([out, attr], dim=1)
-            out = dec_layer(out)
-        return out
-
-    def decode_from_disentangled(self, z, a, encodings):
-        #concat all features
-        out = z
-        for enc in encodings:
-            out = torch.cat([out, enc[-1]], dim=1)
-        out=self.decoder_fc(out)
-        out = out.unsqueeze(-1).unsqueeze(-1) # expand(out.size()[0], out.size()[1],1,1)
-        stu_state = z
-        a = a.view((out.size(0), self.n_attrs, 1, 1))
-
-        for i, dec_layer in enumerate(self.decoder):
-            #print(i)
-            if i < self.n_attr_deconv:
-                #concatenate attribute
-                size = out.size(2)
-                attr = a.expand((out.size(0), self.n_attrs, size, size))
-                out = torch.cat([out, attr], dim=1)
-            if  0 < i <= self.shortcut_layers:
-                #do shortcut connection
-                for enc in encodings:
-                    #print(out.shape,enc[self.n_layers-1-i].shape)
-                    out = torch.cat([out, enc[self.n_layers-i]], dim=1)
-                    #print(out.shape)
-            out = dec_layer(out)
-        return out
-
-    def encode(self, x):
-        # propagate encoder layers
-        encoded = []
-        y = x
-        for layer in self.encoder:
-            y = layer(y)
-            encoded.append(y)
-        y = y.view(y.size()[0], -1)
-        y=self.features(y)
-        encoded.append(y)
-        return encoded
-
-    def forward(self, x, a, encodings):
-        # propagate encoder layers
-        encoded = self.encode(x)
-        out=self.decode_from_disentangled(encoded[-1],a,encodings)
-        return out,encoded
 
 def FC_layers(in_dim,fc_dim,out_dim,tanh):
     layers=[nn.Linear(in_dim, fc_dim),

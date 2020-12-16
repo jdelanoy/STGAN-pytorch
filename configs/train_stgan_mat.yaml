@@ -14,7 +14,17 @@ crop_size: 240
 image_size: 128
 gaussian_stddev: 0.5
 
+#which part activate
+use_latent_disc: true #latent discriminator to not encode attribute
+use_image_disc: false #GAN
+use_classifier_generator: false
+rec_loss: 'l1' #Can be l1, l2, perceptual
+do_mean_features: true #average the features when going through generator
+separate_C_D: false #TODO not implemented yet
+
+
 #### model (FaderNet)
+#dim of the network
 g_conv_dim: 32
 d_conv_dim: 32
 d_fc_dim: 512
@@ -22,9 +32,10 @@ max_conv_dim: 512
 vgg_like: True
 g_layers: 6
 d_layers: 5
+#divide into branches, skip connections, where to put the attributes
 shortcut_layers: 0
-n_attr_deconv: 0
-use_attr_diff: false
+n_attr_deconv: 0 #in how many deconv layer add the attribute:0 = no attribute, 1=normal (just concat to bneck)
+use_branches : true
 #other
 attrs: [glossy]
 checkpoint: ~
@@ -49,6 +60,7 @@ g_lr: 0.0001
 d_lr: 0
 ld_lr: 0.00002
 n_critic: 1
+n_critic_ld: 1
 lambda_adv : 0
 lambda_gp: 0
 lambda_d_att: 0
@@ -68,16 +80,4 @@ summary_step: 100
 sample_step: 1000
 checkpoint_step: 10000
 
-#which part activate
-#true for FaderNet
-use_latent_disc: false
-#true for STGAN
-use_image_disc: false
-use_classifier_generator: false
-rec_loss: 'l1'
-do_mean_features: true
 
-#TODO not implemented yet
-separate_C_D: false 
-
-#improve: go only once through G, then update D, LD

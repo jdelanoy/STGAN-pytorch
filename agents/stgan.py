@@ -20,7 +20,7 @@ from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
 
 from datasets import *
-from models.stgan import Generator, Discriminator, Latent_Discriminator
+from models.stgan import Generator, Discriminator, Latent_Discriminator, GeneratorWithBranches
 #from models.vggPerceptualLoss import VGGPerceptualLoss
 from models.perceptual_loss import PerceptualLoss, GradientL1Loss
 from utils.misc import print_cuda_statistics
@@ -41,7 +41,10 @@ class STGANAgent(object):
         torch.backends.cudnn.benchmark = False
         torch.manual_seed(0)
 
-        self.G = Generator(len(self.config.attrs),self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers,n_attr_deconv=self.config.n_attr_deconv, vgg_like=self.config.vgg_like)
+        if self.config.use_branches:
+            self.G = GeneratorWithBranches(len(self.config.attrs),self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers,n_attr_deconv=self.config.n_attr_deconv, vgg_like=self.config.vgg_like)
+        else:
+            self.G = Generator(len(self.config.attrs),self.config.g_conv_dim, self.config.g_layers, self.config.max_conv_dim, self.config.shortcut_layers,n_attr_deconv=self.config.n_attr_deconv, vgg_like=self.config.vgg_like)
         self.D = Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.d_conv_dim, self.config.d_fc_dim, self.config.d_layers)
         self.LD = Latent_Discriminator(self.config.image_size, self.config.max_conv_dim, len(self.config.attrs), self.config.g_conv_dim, self.config.d_fc_dim, self.config.g_layers, 0)
 
@@ -218,7 +221,7 @@ class STGANAgent(object):
     def compute_disentangle_grid(self,x_real, a_att, path,writer=False):
         #encode all the batch
         encodings,bneck = self.G.encode(x_real)
-        splitted_bneck = self.split_bneck(bneck)
+        splitted_bneck = self.G.split_bneck(bneck)
         batch_size=x_real.shape[0]
         
         #for each branch
@@ -226,16 +229,20 @@ class STGANAgent(object):
             x_fake_list = [torch.cat((x_real[0].unsqueeze(0),x_real),dim=0)]
             #each column: all share the same embedding for the branchfor c in range(batch_size):
             for c in range(batch_size):
-                #copy bneck and encodings
-                bneck_copy = [enc.clone() for enc in splitted_bneck] 
-                enc_copy= [[enc.clone() for enc in encs] for encs in encodings]
-                #change encoding and bneck for all images
+                #copy bneck and encodings (if branches)
+                bneck_copy = [enc.clone() for enc in splitted_bneck]
+                if self.config.use_branches:
+                    enc_copy= [[enc.clone() for enc in encs] for encs in encodings]
+                else:
+                    enc_copy = encodings
+                #change bneck for all images (and encodings if branches)
                 for i in range(batch_size): #for each image
                     bneck_copy[label][i]=bneck_copy[label][c]
-                    for layer in range(len(enc_copy[label])):
-                        enc_copy[label][layer][i]=enc_copy[label][layer][c]
+                    if self.config.use_branches:
+                        for layer in range(len(enc_copy[label])):
+                            enc_copy[label][layer][i]=enc_copy[label][layer][c]
                 #decode for the encodings in bneck_copy
-                bneck_copy = self.join_bneck(bneck_copy)
+                bneck_copy = self.G.join_bneck(bneck_copy)
                 #print(len(bneck), [bn.shape() for bn in bneck])
                 fake_image=self.G.decode(bneck_copy,a_att,enc_copy)
                 #add reference image
@@ -269,42 +276,8 @@ class STGANAgent(object):
         finally:
             self.finalize()
 
-    # def split_bneck(self, bneck, do_norm=False):
-    #     self.bneck_shape = bneck.shape
-    #     batch_size = bneck.size(0)
-    #     step = bneck.size(1) // 3
 
-    #     bneck_material = bneck[:, :step].view(batch_size, -1)  # 1/3 of the features
-    #     bneck_shape = bneck[:, step:step * 2].view(batch_size, -1)
-    #     bneck_illum = bneck[:, step * 2:].view(batch_size, -1)
 
-    #     if do_norm:
-    #         bneck_material = bneck_material / bneck_material.norm(p=2)
-    #         bneck_shape = bneck_shape / bneck_shape.norm(p=2)
-    #         bneck_illum = bneck_illum / bneck_illum.norm(p=2)
-
-    #     return bneck_material, bneck_shape, bneck_illum
-
-    # def join_bneck(self, bnecks):
-    #     return torch.cat(bnecks, dim=1).view(self.bneck_shape)
-
-    def split_bneck(self, bneck, do_norm=False):
-        self.bneck_shape = bneck[0].shape
-        batch_size = bneck[0].size(0)
-
-        bneck_material = bneck[0].view(batch_size, -1)  # 1/3 of the features
-        bneck_shape = bneck[1].view(batch_size, -1)
-        bneck_illum = bneck[2].view(batch_size, -1)
-
-        if do_norm:
-            bneck_material = bneck_material / bneck_material.norm(p=2)
-            bneck_shape = bneck_shape / bneck_shape.norm(p=2)
-            bneck_illum = bneck_illum / bneck_illum.norm(p=2)
-
-        return bneck_material, bneck_shape, bneck_illum
-
-    def join_bneck(self, bnecks):
-        return [bneck.view(self.bneck_shape) for bneck in bnecks]
 
     def train(self):
         self.setup_all_optimizers()
@@ -419,10 +392,10 @@ class STGANAgent(object):
                     self.LD.train()
                     # compute disc loss on encoded image
                     _,bneck = self.G.encode(Ia)
-                    bneck_mater, bneck_shape, bneck_illum = self.split_bneck(bneck)
+                    bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
 
                     for _ in range(self.config.n_critic_ld):
-                        out_att = self.LD(bneck_mater.view(self.bneck_shape))
+                        out_att = self.LD(bneck_mater)
                         #classification loss
                         ld_loss = self.regression_loss(out_att, a_att)*self.config.lambda_ld
                         # backward and optimize
@@ -440,13 +413,12 @@ class STGANAgent(object):
 
                 encodings,bneck = self.G.encode(Ia)
 
-                bneck_mater, bneck_shape, bneck_illum = self.split_bneck(bneck)
+                bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
                 bneck = [bneck_mater, bneck_shape, bneck_illum]
                 # Compute invariancy losses
                 loss_shape = 0
                 loss_illum = 0
                 loss_material = 0
-
                 # clamp features to be equal to the batch mean and compute loss
                 if torch.all(mode == 0):  # only MATERIAL changes in the batch
                     bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
@@ -473,7 +445,7 @@ class STGANAgent(object):
                 scalars["G/dist_material"]=loss_material
 
                 # join bneck
-                bneck = self.join_bneck(bneck)
+                bneck = self.G.join_bneck(bneck)
 
                 Ia_hat=self.G.decode(bneck,a_att,encodings)
                 g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
@@ -486,7 +458,7 @@ class STGANAgent(object):
 
                 #latent discriminator for attribute in the material part TODO mat part only
                 if self.config.use_latent_disc:
-                    out_att = self.LD(bneck_mater.view(self.bneck_shape))
+                    out_att = self.LD(bneck_mater)
                     g_loss_latent = -self.regression_loss(out_att, a_att)
                     g_loss += self.config.lambda_g_latent * g_loss_latent
                     scalars['G/loss_latent'] = g_loss_latent.item()
