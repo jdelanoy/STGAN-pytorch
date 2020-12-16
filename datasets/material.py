@@ -220,8 +220,8 @@ class MaterialDataLoader(object):
             self.val_loader = data.DataLoader(val_set, batch_size=20, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
-            transform.insert(0, transforms.RandomHorizontalFlip())
             if data_augmentation:
+                transform.insert(0, transforms.RandomHorizontalFlip())
                 transform.insert(0, transforms.RandomVerticalFlip())
                 transform.insert(0, transforms.RandomCrop(size=crop_size))
                 transform.insert(0, RandomResize(low=256, high=300))

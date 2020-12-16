@@ -145,12 +145,12 @@ class STGANAgent(object):
         return F.cross_entropy(logit,target) 
     def reconstruction_loss(self, Ia, Ia_hat, scalars):
         if self.config.rec_loss == 'l1':
-            g_loss_rec = F.l1_loss(Ia - Ia_hat)
+            g_loss_rec = F.l1_loss(Ia,Ia_hat)
         elif self.config.rec_loss == 'l2':
             g_loss_rec = ((Ia - Ia_hat) ** 2).mean()
         elif self.config.rec_loss == 'perceptual' or self.config.rec_loss == 'watson':
             perc_loss = self.perceptual_loss(Ia, Ia_hat) * self.config.perc_loss_rec_weight
-            l1_loss=F.l1_loss(Ia - Ia_hat)
+            l1_loss=F.l1_loss(Ia,Ia_hat)
             scalars['G/loss_rec_l1'] = l1_loss.item()
             scalars['G/loss_rec_perc'] = perc_loss.item()
             g_loss_rec = perc_loss + l1_loss
