@@ -235,7 +235,8 @@ class STGANAgent(object):
                     for layer in range(len(enc_copy[label])):
                         enc_copy[label][layer][i]=enc_copy[label][layer][c]
                 #decode for the encodings in bneck_copy
-                bneck = self.join_bneck(bneck_copy)
+                bneck_copy = self.join_bneck(bneck_copy)
+                #print(len(bneck), [bn.shape() for bn in bneck])
                 fake_image=self.G.decode(bneck_copy,a_att,enc_copy)
                 #add reference image
                 fake_image=torch.cat((x_real[c].unsqueeze(0),fake_image),dim=0)
@@ -310,7 +311,7 @@ class STGANAgent(object):
 
         # samples used for testing (linear samples) the net
         val_iter = iter(self.data_loader.val_loader)
-        Ia_sample, a_sample, mode = next(val_iter)
+        Ia_sample, a_sample = next(val_iter)
         Ia_sample = Ia_sample.to(self.device)
         a_sample = a_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
