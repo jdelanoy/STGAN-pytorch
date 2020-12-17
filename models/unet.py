@@ -117,54 +117,56 @@ class IntrinsicsSplit(autograd_fn.Function):
     def forward(ctx, all_features, mode):
         ctx.mode = mode
         all_split_feats, ctx.feat_sizes = IntrinsicsSplit.split_bneck(all_features)
-        ctx.feat_mater, ctx.feat_shape, ctx.feat_illum = all_split_feats
-        ctx.save_for_backward(all_features)
 
+        ctx.feat_mater, ctx.feat_shape, ctx.feat_illum = all_split_feats
+
+
+        ctx.save_for_backward(all_features)
         return all_features
 
     @staticmethod
     def backward(ctx, grad_output):
         # initialize all the variables
         clamping_weight = 1 / 100
-        mode = ctx.mode
-        feat_mater = ctx.bneck_mater
-        feat_shape = ctx.bneck_shape
-        feat_illum = ctx.bneck_illum
-
-        # we have to return as many gradients as inputs in forward (two in this case).
-        # However, the mode does need a gradient thus return None as the second gradient
-        bneck_grad = None
-        mode_grad = None
-
-        # compute features mean
-        feat_mater_mean = feat_mater.mean(dim=0, keepdim=True).expand_as(feat_mater)
-        feat_shape_mean = feat_shape.mean(dim=0, keepdim=True).expand_as(feat_shape)
-        feat_illum_mean = feat_illum.mean(dim=0, keepdim=True).expand_as(feat_illum)
-
-        # get features gradient for each property
-        split_feat_grad, feat_grad_size = IntrinsicsSplit.split_bneck(grad_output)
-        bneck_mater_grad, bneck_shape_grad, bneck_illum_grad = split_feat_grad
-        print(grad_output)
-
-        # from S3.2 IGN paper: "we train all the neurons which correspond to the inactive
-        # transformations with an error gradient equal to their difference from the mean.
-        # [...] This regularizing force needs to be scaled to be much smaller than the
-        # true training signal, otherwise it can overwhelm the reconstruction goal.
-        # Empirically, a factor of 1/100 works well."
-        if torch.all(mode == 0):  # only MATERIAL changes in the batch
-            bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
-            bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
-        elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-            bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
-            bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
-        elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-            bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
-            bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
-        else:
-            raise ValueError('data sampling mode not understood')
-
-        grad_bneck = (bneck_mater_grad, bneck_shape_grad, bneck_illum_grad)
-        grad_bneck = IntrinsicsSplit.join_bneck(grad_bneck, ctx.bneck_size)
+        # mode = ctx.mode
+        # feat_mater = ctx.bneck_mater
+        # feat_shape = ctx.bneck_shape
+        # feat_illum = ctx.bneck_illum
+        #
+        # # we have to return as many gradients as inputs in forward (two in this case).
+        # # However, the mode does need a gradient thus return None as the second gradient
+        # bneck_grad = None
+        # mode_grad = None
+        #
+        # # compute features mean
+        # feat_mater_mean = feat_mater.mean(dim=0, keepdim=True).expand_as(feat_mater)
+        # feat_shape_mean = feat_shape.mean(dim=0, keepdim=True).expand_as(feat_shape)
+        # feat_illum_mean = feat_illum.mean(dim=0, keepdim=True).expand_as(feat_illum)
+        #
+        # # get features gradient for each property
+        # split_feat_grad, feat_grad_size = IntrinsicsSplit.split_bneck(grad_output)
+        # bneck_mater_grad, bneck_shape_grad, bneck_illum_grad = split_feat_grad
+        # print(grad_output)
+        #
+        # # from S3.2 IGN paper: "we train all the neurons which correspond to the inactive
+        # # transformations with an error gradient equal to their difference from the mean.
+        # # [...] This regularizing force needs to be scaled to be much smaller than the
+        # # true training signal, otherwise it can overwhelm the reconstruction goal.
+        # # Empirically, a factor of 1/100 works well."
+        # if torch.all(mode == 0):  # only MATERIAL changes in the batch
+        #     bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
+        #     bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
+        # elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
+        #     bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
+        #     bneck_illum_grad = clamping_weight * (feat_illum - feat_illum_mean)
+        # elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
+        #     bneck_shape_grad = clamping_weight * (feat_shape - feat_shape_mean)
+        #     bneck_mater_grad = clamping_weight * (feat_mater - feat_mater_mean)
+        # else:
+        #     raise ValueError('data sampling mode not understood')
+        #
+        # grad_bneck = (bneck_mater_grad, bneck_shape_grad, bneck_illum_grad)
+        # grad_bneck = IntrinsicsSplit.join_bneck(grad_bneck, ctx.bneck_size)
         return grad_output, None
 
 
@@ -172,8 +174,8 @@ class UNet(nn.Module):
     def __init__(self, in_ch, out_ch, ch, act, norm, ign_grad=False):
         super(UNet, self).__init__()
         self.up_and_concat = UpAndConcat()
-        self.ign_grad=ign_grad
-        
+        self.ign_grad = ign_grad
+
         # TODO: iterate over ch and automatically create the encoder and decoder
         assert len(ch) == 5
 
@@ -209,15 +211,18 @@ class UNet(nn.Module):
         x_encoder = []
         for block in self.encoder:
             x = block(x)
+            x = self.split.apply((x,), mode)[0]
             x_encoder.insert(0, x)
 
         # Bottleneck
         for block in self.bottleneck:
             x = block(x)
+            x = self.split.apply((x,), mode)[0]
 
-        # group all features into a tuple and call the split function to keep track of their
-        # special (custom) backward case
-        x_encoder, x = self.split_bneck((*x_encoder, x), mode)
+
+        # # group all features into a tuple and call the split function to keep track of their
+        # # special (custom) backward case
+        # x_encoder, x = self.split_bneck((*x_encoder, x), mode)
 
         return x, x_encoder
 
