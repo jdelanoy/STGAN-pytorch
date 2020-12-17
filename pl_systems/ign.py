@@ -21,14 +21,6 @@ class HardIGN(pl.LightningModule):
         # create model
         # self.model = UNet(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act)
         self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act)
-        self.join_bneck = self.model.split.join_bneck
-        self.split_bneck = self.model.split.split_bneck
-
-        # dicts to store the images during train/val steps
-        self.last_val_batch = {}
-        self.last_val_pred = {}
-        self.last_train_batch = {}
-        self.last_train_pred = {}
 
         # create all the loss functions that we may need
         self.L1 = torch.nn.L1Loss()
@@ -85,7 +77,7 @@ class HardIGN(pl.LightningModule):
 
         # compute bneck invariancy loss
         loss['G/loss_invariancy'] = (
-                                                loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
+                                            loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
 
         # compute L1 losses and perceptual losses on the generated image
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
@@ -162,9 +154,6 @@ class HardIGN(pl.LightningModule):
         img_hat = self.model(img, mode)
         return img_hat
 
-    def on_epoch_end(self):
-        self.eval()
-
     def configure_optimizers(self):
         if self.hparams.optimizer.lower() == 'adam':
             optimizer = torch.optim.Adam(self.model.parameters(),
@@ -185,25 +174,6 @@ class HardIGN(pl.LightningModule):
         #     'frequency': 1
         # }
         return [optimizer], [scheduler]
-
-    def split_bneck(self, bneck, do_norm=False):
-        self.bneck_shape = bneck.shape
-        batch_size = bneck.size(0)
-        step = bneck.size(1) // 3
-
-        bneck_material = bneck[:, :step].view(batch_size, -1)  # 1/3 of the features
-        bneck_shape = bneck[:, step:step * 2].view(batch_size, -1)
-        bneck_illum = bneck[:, step * 2:].view(batch_size, -1)
-
-        if do_norm:
-            bneck_material = bneck_material / bneck_material.norm(p=2)
-            bneck_shape = bneck_shape / bneck_shape.norm(p=2)
-            bneck_illum = bneck_illum / bneck_illum.norm(p=2)
-
-        return bneck_material, bneck_shape, bneck_illum
-
-    def join_bneck(self, *bnecks):
-        return torch.cat(bnecks, dim=1).view(*self.bneck_shape)
 
     def reconstruction_loss(self, img_hat, img, loss):
         loss['G/loss_l1'] = F.l1_loss(img_hat, img) * self.hparams.lambda_G_l1
@@ -232,7 +202,8 @@ class HardIGN(pl.LightningModule):
             parser.add_argument('--batch-size', default=6, type=int)
 
             # model cfg parameters
-            parser.add_argument('--ch', default=[64, 128, 256, 512, 512], type=int)
+            parser.add_argument('--ch', default=[64, 128, 256], type=int)
+            parser.add_argument('--bneck-layers', default=2, type=int)
             parser.add_argument('--norm', default='batch', type=str)
             parser.add_argument('--act', default='leaky_relu', type=str)
             parser.add_argument('--norm-bneck', default=True, type=bool)
@@ -295,7 +266,7 @@ class SoftIGN(HardIGN):
 
         # compute bneck invariancy loss
         loss['G/loss_invariancy'] = (
-                                                loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
+                                            loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
 
         # compute L1 losses and perceptual losses on the generated image
         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
@@ -378,7 +349,7 @@ class OriginalIGN(HardIGN):
 
         if self.hparams.lambda_G_features > 0:
             loss['G/loss_invariancy'] = (
-                                                    loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
+                                                loss_shape + loss_illum + loss_material) * self.hparams.lambda_G_features
 
         self.reconstruction_loss(img_hat, img, loss)
 
@@ -589,8 +560,6 @@ class IGNWithUNet(OriginalIGN):
     def __init__(self, hparams):
         super(IGNWithUNet, self).__init__(hparams)
         self.model = UNet(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act)
-        self.join_bneck = self.model.split.join_bneck
-        self.split_bneck = self.model.split.split_bneck
 
     @staticmethod
     def _list_transpose(x):
@@ -699,3 +668,245 @@ class IGNWithUNet(OriginalIGN):
             self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
         return loss
+
+
+class BranchIGN(pl.LightningModule):
+
+    def __init__(self, hparams):
+        super(BranchIGN, self).__init__()
+        from models.unet import BranchUNet
+
+        # read experiment params
+        self.hparams = hparams
+
+        self.model = BranchUNet(in_ch=3,
+                                out_ch=3,
+                                bneck_layers=hparams.bneck_layers,
+                                ch=hparams.ch,
+                                norm=hparams.norm,
+                                act=hparams.act,
+                                ign_grad=self.hparams.use_IGN_grad)
+        self.split_bneck = self.model.split.split_bneck
+        self.join_bneck = self.model.split.join_bneck
+
+        # create all the loss functions that we may need
+        self.L1 = torch.nn.L1Loss()
+        self.loss_P = PerceptualLoss()
+        self.loss_S = StyleLoss()
+        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4'])
+
+        self.example_input_array = [
+            torch.rand(4, 3, 256, 256).clamp(-1, 1),
+            torch.ones(8, 1),
+        ]
+
+    def training_step(self, batch, batch_nb):
+        # if self.hparams.block_branch_grads:
+        #     for param in self.model.encoder_mater.parameters():
+        #         param.requires_grad(False)
+        #     for param in self.model.encoder_shape.parameters():
+        #         param.requires_grad(False)
+        #     for param in self.model.encoder_illum.parameters():
+        #         param.requires_grad(False)
+        #
+        #     for param in self.model.bneck_mater.parameters():
+        #         param.requires_grad(False)
+        #     for param in self.model.bneck_shape.parameters():
+        #         param.requires_grad(False)
+        #     for param in self.model.bneck_illum.parameters():
+        #         param.requires_grad(False)
+
+        loss = self.get_loss(batch)
+        self.log_dict(loss)
+        return loss
+
+    def validation_step(self, batch, batch_nb):
+        loss = self.get_loss(batch)
+        loss = {'val_%s' % key: item for key, item in loss.items()}
+        self.log_dict(loss)
+        if batch_nb % self.hparams.img_log_iter == 0:
+            self.log_img_interpolation(batch)
+        return loss
+
+    def log_img_interpolation(self, batch):
+        # forward through the model and get loss
+        img, label, mode = batch
+        batch_size = img.size(0)
+
+        x_encoder_mater, x_encoder_shape, x_encoder_illum = self.model.forward_encoder(img, mode)
+        all_feat = [x_encoder_mater, x_encoder_shape, x_encoder_illum]
+
+        all_recon = []
+        for _ in range(batch_size):
+
+            # reconstruct with the current features and append result
+            bneck, skip_connections = self.model.prepare_features(*all_feat)
+            img_hat = self.model.forward_decoder(bneck, skip_connections)
+            all_recon.append(img_hat)
+
+            # shift features by one element to perferm a new reconstruction
+            for i in range(len(all_feat[0])):
+
+                # only MATERIAL changes in the batch
+                if torch.all(mode == 0):
+                    all_feat[0][i] = torch.roll(all_feat[0][i], 1, dims=0)
+
+                # only GEOMETRY changes in the batch
+                elif torch.all(mode == 1):
+                    all_feat[1][i] = torch.roll(all_feat[1][i], 1, dims=0)
+
+                # only ILLUMINATION changes in the batch
+                elif torch.all(mode == 2):
+                    all_feat[2][i] = torch.roll(all_feat[2][i], 1, dims=0)
+
+        all_recon = torch.cat((img, *all_recon), dim=-2)
+        img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
+        self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
+
+    def get_loss(self, batch):
+        img, label, mode = batch
+
+        x_encoder_mater, x_encoder_shape, x_encoder_illum = self.model.forward_encoder(img, mode)
+        all_feat = [x_encoder_mater, x_encoder_shape, x_encoder_illum]
+
+        all_feat, loss = self.compute_consistency_loss(all_feat, mode)
+
+        bneck, skip_connections = self.model.prepare_features(*all_feat)
+        img_hat = self.model.forward_decoder(bneck, skip_connections)
+
+        self.reconstruction_loss(img_hat, img, loss)
+
+        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+        return loss
+
+    def forward(self, img, mode):
+        img_hat = self.model(img, mode)
+        return img_hat
+
+    def configure_optimizers(self):
+        if self.hparams.optimizer.lower() == 'adam':
+            optimizer = torch.optim.Adam(self.model.parameters(),
+                                         lr=0.0001, betas=(0.9, 0.999))
+        elif self.hparams.optimizer.lower() == 'sgd':
+            optimizer = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9,
+                                        weight_decay=5e-4, nesterov=True)
+        else:
+            raise ValueError('--optimizer should be one of [sgd, adam]')
+        scheduler = lr_scheduler.StepLR(optimizer, 50000)
+        # scheduler = {
+        #     'scheduler': lr_scheduler.ReduceLROnPlateau(
+        #         optimizer=optimizer,
+        #         patience=5,
+        #         factor=0.1),
+        #     'monitor': 'val_loss',
+        #     'interval': 'epoch',
+        #     'frequency': 1
+        # }
+        return [optimizer], [scheduler]
+
+    def compute_consistency_loss(self, all_feat, mode):
+        # Compute consistency losses
+        loss_shape = torch.tensor(0).type_as(all_feat[0][0])
+        loss_illum = torch.tensor(0).type_as(all_feat[0][0])
+        loss_mater = torch.tensor(0).type_as(all_feat[0][0])
+
+        for i, (feats_mater, feats_shape, feats_illum) in enumerate(zip(*all_feat)):
+
+            feats_mater_mean = feats_mater.mean(dim=0, keepdim=True).expand_as(feats_mater)
+            feats_shape_mean = feats_shape.mean(dim=0, keepdim=True).expand_as(feats_shape)
+            feats_illum_mean = feats_illum.mean(dim=0, keepdim=True).expand_as(feats_illum)
+
+            # clamp features to be equal to the batch mean and compute loss
+
+            # only MATERIAL changes in the batch
+            if torch.all(mode == 0):
+                all_feat[1][i] = feats_shape_mean
+                all_feat[2][i] = feats_illum_mean
+
+                loss_shape = loss_shape + torch.dist(feats_shape, feats_shape_mean, p=2).mean()
+                loss_illum = loss_illum + torch.dist(feats_illum, feats_illum_mean, p=2).mean()
+
+            # only GEOMETRY changes in the batch
+            elif torch.all(mode == 1):
+                all_feat[0][i] = feats_mater_mean
+                all_feat[2][i] = feats_illum_mean
+
+                loss_illum = loss_illum + torch.dist(feats_illum, feats_illum_mean, p=2).mean()
+                loss_mater = loss_mater + torch.dist(feats_mater, feats_mater_mean, p=2).mean()
+
+            # only ILLUMINATION changes in the batch
+            elif torch.all(mode == 2):
+                all_feat[0][i] = feats_mater_mean
+                all_feat[1][i] = feats_shape_mean
+
+                loss_shape = loss_shape + torch.dist(feats_shape, feats_shape_mean, p=2).mean()
+                loss_mater = loss_mater + torch.dist(feats_mater, feats_mater_mean, p=2).mean()
+            else:
+                raise ValueError('data sampling  mode not understood')
+
+        loss_mater = loss_mater / len(all_feat[0])
+        loss_shape = loss_mater / len(all_feat[0])
+        loss_illum = loss_mater / len(all_feat[0])
+        return all_feat, {"G/dist_mater": loss_mater * self.hparams.lambda_G_features,
+                          "G/dist_shape": loss_shape * self.hparams.lambda_G_features,
+                          "G/dist_illum": loss_illum * self.hparams.lambda_G_features}
+
+    def reconstruction_loss(self, img_hat, img, loss):
+        loss['G/loss_l1'] = F.l1_loss(img_hat, img) * self.hparams.lambda_G_l1
+        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style > 0):
+            f_img = self.vgg16_f(img)
+            f_img_hat = self.vgg16_f(img_hat)
+            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+
+    @property
+    def tb_add_image(self):
+        # easier call to log images
+        return self.logger.experiment.add_image
+
+    @staticmethod
+    def add_ckpt_args(parent_parser):
+        def __model_args(parent_parser):
+            parser = argparse.ArgumentParser(parents=[parent_parser])
+
+            # run paremeters
+            parser.add_argument('--gpus', type=str, default='-1')
+            parser.add_argument('--seed', type=int, default=1953)
+
+            # dataset parameters
+            parser.add_argument('--num-workers', default=10, type=int)
+            parser.add_argument('--batch-size', default=6, type=int)
+
+            # model cfg parameters
+            parser.add_argument('--ch', default=[64, 128, 256], type=int)
+            parser.add_argument('--bneck-layers', default=2, type=int)
+            parser.add_argument('--norm', default='batch', type=str)
+            parser.add_argument('--act', default='leaky_relu', type=str)
+            parser.add_argument('--norm-bneck', default=False, type=bool)
+            parser.add_argument('--block-branch-grads', default=True, type=bool)
+
+            # losses weights parameters
+            parser.add_argument('--lambda_G_l1', default=1, type=float)
+            parser.add_argument('--lambda_G_perc', default=0.1, type=float)
+            parser.add_argument('--lambda_G_style', default=1e4, type=float)
+            parser.add_argument('--lambda_G_features', default=0.01, type=float)
+            parser.add_argument('--use_IGN_grad', dest='use_IGN_grad', default=False,
+                                action='store_true')
+            parser.add_argument('--do_mean_features', dest='do_mean_features', default=False,
+                                action='store_true')
+
+            # optimizer parameters
+            parser.add_argument('--optimizer', default='adam', type=str)
+
+            # logging parameters
+            parser.add_argument('--img-log-iter', default=500, type=str)
+
+            # data params
+            parser.add_argument('--data-path', default='../data/renders_materials_manu')
+            parser.add_argument('--image-size', default=128)
+            parser.add_argument('--crop-size', default=240)
+            parser.add_argument('--attrs', default=['glossy'])
+
+            return parser
+
+        return __model_args(parent_parser)

@@ -1,6 +1,5 @@
 import argparse
 import os
-from datetime import datetime
 
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
@@ -8,12 +7,12 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from datasets.materials_data_module import MaterialDataModule
-from pl_systems.ign import SoftIGN, HardIGN, OriginalIGN, IGNPredictQuotient, IGNWithUNet
+from pl_systems.ign import BranchIGN
 
 
 def main():
     _root_dir = os.path.dirname(os.path.realpath(__file__))
-    log_dir = os.path.join(_root_dir, 'logs/logs_1213')
+    log_dir = os.path.join(_root_dir, 'logs/logs_1218')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
     experiment_name = 'OriginalIGN'
     experiment_version = 'UNet-convdistangle-nogradtrick'
@@ -23,7 +22,7 @@ def main():
     hparams.add_argument('--model-save_path', default=checkpoint_dir)
     hparams.add_argument('--experiment_name', default=experiment_name)
     hparams.add_argument('--experiment_version', default=experiment_version)
-    hparams = IGNWithUNet.add_ckpt_args(hparams).parse_args()
+    hparams = BranchIGN.add_ckpt_args(hparams).parse_args()
 
 
     seed_everything(hparams.seed)
@@ -36,7 +35,7 @@ def main():
     )
 
     # init lightining model
-    model = IGNWithUNet(hparams=hparams)
+    model = BranchIGN(hparams=hparams)
 
     # init trainer
     trainer = Trainer(
