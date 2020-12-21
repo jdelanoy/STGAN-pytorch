@@ -260,7 +260,7 @@ class STGANAgent(object):
         batch_size = img.size(0)
         enc_feat,bneck = self.G.encode(img)
         bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
-        bneck_size = bneck.shape
+        #bneck_size = bneck.shape
 
         all_recon = []
         for _ in range(batch_size):
