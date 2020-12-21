@@ -312,11 +312,26 @@ class STGANAgent(object):
         finally:
             self.finalize()
 
+    #return the averaged enc and skips for all the branches [bnecks],[encodings] for encodings that go through skips
+    #input: bneck=[bneck_mater, bneck_shape, bneck_illum]
+    def average_features_and_skip(self,encodings,bneck):
+        bneck_mean=[bn.mean(dim=0, keepdim=True).expand_as(bn) for bn in bneck]
+        enc_mean= [[enc.clone() for enc in encs] for encs in encodings]
+        for one_branch_enc in enc_mean:
+            for i in range(self.config.shortcut_layers):
+                one_branch_enc[-i-1]=one_branch_enc[-i-1].mean(dim=0, keepdim=True).expand_as(one_branch_enc[-i-1])
+        return bneck_mean,enc_mean
 
+    def loss_invariancy_features(self, mean_features, features):
+        bneck_mean,enc_mean = mean_features
+        bneck,encodings = features
 
-
-
-
+        loss=[0,0,0]
+        for attr in range(len(enc_mean)):
+            loss[attr] += torch.dist(bneck[attr],bneck_mean[attr], p=2).mean()
+            for i in range(self.config.shortcut_layers):
+                loss[attr] += torch.dist(encodings[attr][-i-1],enc_mean[attr][-i-1], p=2).mean()
+        return loss        
 
 
 
@@ -453,32 +468,51 @@ class STGANAgent(object):
                 self.LD.eval()
 
                 encodings,bneck = self.G.encode(Ia)
-
+                
                 bneck_mater, bneck_shape, bneck_illum = self.G.split_bneck(bneck)
                 bneck = [bneck_mater, bneck_shape, bneck_illum]
-                # Compute invariancy losses
-                loss_shape = 0
-                loss_illum = 0
-                loss_material = 0
-                # clamp features to be equal to the batch mean and compute loss
+
+                #this works only with the branching network
+                bneck_mean,enc_mean=self.average_features_and_skip(encodings,bneck)
+                loss_shape,loss_illum,loss_material=self.loss_invariancy_features([bneck_mean,enc_mean],[bneck,encodings])
                 if torch.all(mode == 0):  # only MATERIAL changes in the batch
-                    bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
-                    bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-                    if self.config.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
-                    loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
-                    loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+                    if self.config.do_mean_features : 
+                        bneck = [bneck_mater, bneck_mean[1], bneck_mean[2]]
+                        encodings=[encodings[0], enc_mean[1], enc_mean[2]]
+                    loss_material = 0
                 elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
-                    bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-                    bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
-                    if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
-                    loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
-                    loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
+                    if self.config.do_mean_features : 
+                        bneck = [bneck_mean[0], bneck_shape, bneck_mean[2]]
+                        encodings=[enc_mean[0], encodings[1], enc_mean[2]]
+                    loss_shape = 0
                 elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
-                    bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
-                    bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
-                    if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
-                    loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
-                    loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
+                    if self.config.do_mean_features : 
+                        bneck = [bneck_mean[0], bneck_mean[1], bneck_illum]
+                        encodings=[enc_mean[0], enc_mean[1], encodings[2]]
+                    loss_illum = 0
+                # # Compute invariancy losses
+                # loss_shape = 0
+                # loss_illum = 0
+                # loss_material = 0
+                # # clamp features to be equal to the batch mean and compute loss
+                # if torch.all(mode == 0):  # only MATERIAL changes in the batch
+                #     bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                #     bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+                #     if self.config.do_mean_features : bneck = [bneck_mater, bneck_shape_mean, bneck_illum_mean]
+                #     loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+                #     loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+                # elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
+                #     bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+                #     bneck_illum_mean = bneck_illum.mean(dim=0, keepdim=True).expand_as(bneck_illum)
+                #     if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape, bneck_illum_mean]
+                #     loss_illum = torch.dist(bneck_illum,bneck_illum_mean, p=2).mean()
+                #     loss_material = torch.dist(bneck_mater,bneck_mater_mean, p=2).mean()
+                # elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
+                #     bneck_shape_mean = bneck_shape.mean(dim=0, keepdim=True).expand_as(bneck_shape)
+                #     bneck_mater_mean = bneck_mater.mean(dim=0, keepdim=True).expand_as(bneck_mater)
+                #     if self.config.do_mean_features : bneck = [bneck_mater_mean, bneck_shape_mean, bneck_illum]
+                #     loss_shape = torch.dist(bneck_shape,bneck_shape_mean, p=2).mean()
+                #     loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
                 else:
                     raise ValueError('data sampling  mode not understood')
                 scalars["G/dist_shape"]=loss_shape
