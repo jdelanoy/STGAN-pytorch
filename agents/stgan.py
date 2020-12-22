@@ -316,11 +316,14 @@ class STGANAgent(object):
     #input: bneck=[bneck_mater, bneck_shape, bneck_illum]
     def average_features_and_skip(self,encodings,bneck):
         bneck_mean=[bn.mean(dim=0, keepdim=True).expand_as(bn) for bn in bneck]
-        enc_mean= [[enc.clone() for enc in encs] for encs in encodings]
-        for one_branch_enc in enc_mean:
-            for i in range(self.config.shortcut_layers):
-                one_branch_enc[-i-1]=one_branch_enc[-i-1].mean(dim=0, keepdim=True).expand_as(one_branch_enc[-i-1])
-        return bneck_mean,enc_mean
+        if self.config.use_branches:
+            enc_mean= [[enc.clone() for enc in encs] for encs in encodings]
+            for one_branch_enc in enc_mean:
+                for i in range(self.config.shortcut_layers):
+                    one_branch_enc[-i-1]=one_branch_enc[-i-1].mean(dim=0, keepdim=True).expand_as(one_branch_enc[-i-1])
+            return bneck_mean,enc_mean
+        else:
+            return bneck_mean, encodings
 
     def loss_invariancy_features(self, mean_features, features):
         bneck_mean,enc_mean = mean_features
@@ -329,8 +332,9 @@ class STGANAgent(object):
         loss=[0,0,0]
         for attr in range(len(enc_mean)):
             loss[attr] += torch.dist(bneck[attr],bneck_mean[attr], p=2).mean()
-            for i in range(self.config.shortcut_layers):
-                loss[attr] += torch.dist(encodings[attr][-i-1],enc_mean[attr][-i-1], p=2).mean()
+            if self.config.use_branches:
+                for i in range(self.config.shortcut_layers):
+                    loss[attr] += torch.dist(encodings[attr][-i-1],enc_mean[attr][-i-1], p=2).mean()
         return loss        
 
 
