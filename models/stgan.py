@@ -78,13 +78,14 @@ class ConvReluBn(nn.Module):
 def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dropout=0, vgg_like=False):
     #TODO other option for kernel sizes: 7,5,5,3...
     bias = norm == 'none'  # use bias only if we do not use a norm layer
+    kernel_sizes=[7,5,5,3,3,3,3]
 
     layers = []
     in_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias),'leaky_relu',norm)]
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, 1,bias=bias),'leaky_relu',norm)]
         if (vgg_like and i >= 3 and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
@@ -137,7 +138,7 @@ def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_
         if i == n_layers-1: dec_in = enc_size * n_branches
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
         if i >= n_layers - 1 - shortcut_layers and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
-            dec_in = dec_in + min(1,n_branches-1)*enc_size 
+            dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]

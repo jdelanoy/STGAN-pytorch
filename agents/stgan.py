@@ -330,7 +330,7 @@ class STGANAgent(object):
         bneck,encodings = features
 
         loss=[0,0,0]
-        for attr in range(len(enc_mean)):
+        for attr in range(len(bneck_mean)):
             loss[attr] += torch.dist(bneck[attr],bneck_mean[attr], p=2).mean()
             if self.config.use_branches:
                 for i in range(self.config.shortcut_layers):
