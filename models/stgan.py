@@ -101,7 +101,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dro
 class Encoder(nn.Module):
     def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
         super(Encoder, self).__init__()
-        act='relu'
+        act='leaky_relu'
         norm='batch'
         bias = norm == 'none'
         enc_layers=get_encoder_layers(conv_dim,n_layers,max_dim,norm='batch',vgg_like=vgg_like) #NOTE bias=false for STGAN
@@ -141,9 +141,9 @@ def build_decoder_convs(attr_dim,conv_dim, n_layers, max_dim, shortcut_layers,n_
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4
 
-        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),'leaky_relu','batch')]
         if vgg_like and i >= min(3,n_layers - 1 - shortcut_layers):
-            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),'relu','batch')]
+            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),'leaky_relu','batch')]
         decoder.append(nn.Sequential(*dec_layer))
 
     last_conv = nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=True)

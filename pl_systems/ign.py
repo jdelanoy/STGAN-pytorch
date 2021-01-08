@@ -7,6 +7,7 @@ import torchvision.utils as tvutils
 from torch.optim import lr_scheduler
 
 from models.unet import Autoencoder
+from models.stgan import Generator
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 
 
@@ -21,7 +22,9 @@ class OriginalIGN(pl.LightningModule):
         self.hparams = hparams
 
         # create model
-        self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act,ign_grad=self.hparams.use_IGN_grad)
+        #self.model = Autoencoder(3, 3, hparams.ch, norm=hparams.norm, act=hparams.act,ign_grad=self.hparams.use_IGN_grad)
+        self.model = Generator(1,conv_dim=64,n_layers=5,max_dim=512, shortcut_layers=0,n_attr_deconv=0, vgg_like=False)
+        print(self.model)
 
         # dicts to store the images during train/val steps
         self.last_val_batch = {}
@@ -47,12 +50,12 @@ class OriginalIGN(pl.LightningModule):
         img, label, mode = batch
 
         # get bottleneck
-        bneck, enc_feat = self.model.forward_encoder(img, mode)
+        enc_feat,bneck = self.model.encode(img)
         bneck_size = bneck.shape
 
         bneck_mater, \
         bneck_shape, \
-        bneck_illum = self.model.split.split_bneck(bneck)
+        bneck_illum = self.model.split_bneck(bneck)
         bneck = [bneck_mater, bneck_shape, bneck_illum]
         # Compute invariancy losses
         loss_shape = 0
@@ -84,10 +87,10 @@ class OriginalIGN(pl.LightningModule):
         self.log_dict(features_dist, on_step=True, on_epoch=False)
 
         # join bneck
-        bneck = self.model.split.join_bneck(bneck, bneck_size)
+        bneck = self.model.join_bneck(bneck, bneck_size)
 
         # compute L1 losses and perceptual losses on the generated image
-        img_hat = self.model.forward_decoder(img, bneck, enc_feat)
+        img_hat = self.model.decode(bneck, label, enc_feat)
 
         loss = {}
         
@@ -108,12 +111,12 @@ class OriginalIGN(pl.LightningModule):
         batch_size = img.size(0)
 
         # get bottleneck
-        bneck, enc_feat = self.model.forward_encoder(img, mode)
+        enc_feat,bneck = self.model.encode(img)
         bneck_size = bneck.shape
 
         bneck_mater, \
         bneck_shape, \
-        bneck_illum = self.model.split.split_bneck(bneck)
+        bneck_illum = self.model.split_bneck(bneck)
 
         all_recon = []
         loss = {}
@@ -146,8 +149,8 @@ class OriginalIGN(pl.LightningModule):
                 raise ValueError('data sampling  mode not understood')
 
             # reconstruct image
-            bneck = self.model.split.join_bneck(bneck, bneck_size)
-            img_hat = self.model.forward_decoder(img, bneck, enc_feat)
+            bneck = self.model.join_bneck(bneck, bneck_size)
+            img_hat = self.model.decode(bneck, label, enc_feat)
             all_recon.append(img_hat)
 
             # compute the loss only when we reconstruct the input image (not for the
@@ -171,7 +174,7 @@ class OriginalIGN(pl.LightningModule):
         img, label, mode = batch
         batch_size = img.size(0)
 
-        bneck, enc_feat = self.model.forward_encoder(img)
+        enc_feat,bneck = self.model.encode(img)
         #bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
         splitted_bneck = self.split_bneck(bneck)
         #for each property
@@ -190,7 +193,7 @@ class OriginalIGN(pl.LightningModule):
                 #         encodings_copy[label][layer][i]=common_features[layer][c]
                 #decode for the encodings in encodings_copy
                 bneck = self.join_bneck(*encodings_copy)
-                fake_image=(self.model.forward_decoder(img, bneck, enc_feat))
+                fake_image=(self.model.decode(bneck, label, enc_feat))
                 #add reference image
                 fake_image=torch.cat((img[c].unsqueeze(0),fake_image),dim=0)
                 x_fake_list.append(fake_image)
@@ -204,7 +207,7 @@ class OriginalIGN(pl.LightningModule):
         img, label, mode = batch
         batch_size = img.size(0)
 
-        bneck, enc_feat = self.model.forward_encoder(img)
+        enc_feat, bneck = self.model.encode(img)
         bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
 
         all_recon = []
@@ -220,7 +223,7 @@ class OriginalIGN(pl.LightningModule):
                 bneck_illum = torch.roll(bneck_illum, shift, dims=0)
 
             bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
-            all_recon.append(self.model.forward_decoder(img, bneck, enc_feat))
+            all_recon.append(self.model.decode(bneck, label, enc_feat))
 
         all_recon = torch.cat((img, *all_recon), dim=-2)
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)

@@ -6,7 +6,7 @@ def activation_func(activation):
     if activation == 'relu':
         return nn.ReLU(inplace=True)
     if activation == 'leaky_relu':
-        return nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        return nn.LeakyReLU(negative_slope=0.01, inplace=True)
     if activation == 'selu':
         return nn.SELU(inplace=True)
     if activation == 'none':
