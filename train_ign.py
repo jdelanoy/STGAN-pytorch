@@ -8,7 +8,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from datasets.materials_data_module import MaterialDataModule
-from pl_systems.ign import SoftIGN, HardIGN, OriginalIGN
+from pl_systems.ign import OriginalIGN
 
 
 def main(hparams):
