@@ -259,52 +259,52 @@ class HardIGN(pl.LightningModule):
         return __model_args(parent_parser)
 
 
-class SoftIGN(HardIGN):
+# class SoftIGN(HardIGN):
 
-    def shared_step(self, batch):
-        img, label, mode = batch
+#     def shared_step(self, batch):
+#         img, label, mode = batch
 
-        # get bottleneck
-        bneck, enc_feat = self.model.forward_encoder(img)
-        bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
+#         # get bottleneck
+#         bneck, enc_feat = self.model.forward_encoder(img)
+#         bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
 
-        loss = {}
+#         loss = {}
 
-        # Compute invariancy losses
-        loss_shape = 0
-        loss_illum = 0
-        loss_material = 0
+#         # Compute invariancy losses
+#         loss_shape = 0
+#         loss_illum = 0
+#         loss_material = 0
 
-        # only MATERIAL is equal in the batch
-        # shift = random.randint(0, batch_size)
-        if torch.all(mode == 0):
-            loss_material = torch.pdist(bneck_material, p=2).mean()
-        # only GEOMETRY changes in the batch
-        elif torch.all(mode == 1):
-            loss_shape = torch.pdist(bneck_shape, p=2).mean()
-        # only ILLUMINATION changes in the batch
-        elif torch.all(mode == 2):
-            loss_illum = torch.pdist(bneck_illum, p=2).mean()
-        else:
-            raise ValueError('data sampling mode not understood')
+#         # only MATERIAL is equal in the batch
+#         # shift = random.randint(0, batch_size)
+#         if torch.all(mode == 0):
+#             loss_material = torch.pdist(bneck_material, p=2).mean()
+#         # only GEOMETRY changes in the batch
+#         elif torch.all(mode == 1):
+#             loss_shape = torch.pdist(bneck_shape, p=2).mean()
+#         # only ILLUMINATION changes in the batch
+#         elif torch.all(mode == 2):
+#             loss_illum = torch.pdist(bneck_illum, p=2).mean()
+#         else:
+#             raise ValueError('data sampling mode not understood')
 
-        # compute bneck invariancy loss
-        loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
+#         # compute bneck invariancy loss
+#         loss['G/loss_invariancy'] = (loss_shape + loss_illum + loss_material)*self.hparams.lambda_G_features
 
-        # compute L1 losses and perceptual losses on the generated image
-        bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
-        img_hat = self.model.forward_decoder(img, bneck, enc_feat)
+#         # compute L1 losses and perceptual losses on the generated image
+#         bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
+#         img_hat = self.model.forward_decoder(img, bneck, enc_feat)
 
-        self.reconstruction_loss(img_hat, img,loss)
+#         self.reconstruction_loss(img_hat, img,loss)
 
-        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+#         loss['loss'] = torch.stack([v for v in loss.values()]).sum()
 
-        return loss
+#         return loss
 
 
-    def forward(self, img):
-        img_hat = self.model(img)
-        return img_hat
+#     def forward(self, img):
+#         img_hat = self.model(img)
+#         return img_hat
 
 
 class OriginalIGN(HardIGN):

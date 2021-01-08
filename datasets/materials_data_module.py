@@ -4,7 +4,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from datasets.material import MaterialDataset, HardDisentangledSampler, SoftDisentangledSampler
+from datasets.material import MaterialDataset, DisentangledSampler #HardDisentangledSampler, SoftDisentangledSampler
 
 
 class RandomResize(object):
@@ -57,14 +57,13 @@ class MaterialDataModule(pl.LightningDataModule):
 
     @property
     def sampler(self):
-        if self.use_soft_sampler:
-            return SoftDisentangledSampler(self.data_train, batch_size=self.batch_size)
-        else:
-            return HardDisentangledSampler(self.data_train, batch_size=self.batch_size)
+        return DisentangledSampler(self.data_train, batch_size=self.batch_size)
+        # if self.use_soft_sampler:
+        #     return SoftDisentangledSampler(self.data_train, batch_size=self.batch_size)
+        # else:
+        #     return HardDisentangledSampler(self.data_train, batch_size=self.batch_size)
 
     def train_dataloader(self):
-
-
         return DataLoader(self.data_train,
                           batch_size=self.batch_size,
                           pin_memory=True,
@@ -72,8 +71,6 @@ class MaterialDataModule(pl.LightningDataModule):
                           sampler=self.sampler)
 
     def val_dataloader(self):
-        sampler = HardDisentangledSampler(self.data_val, batch_size=self.batch_size)
-
         return DataLoader(self.data_val,
                           batch_size=self.batch_size,
                           pin_memory=True,
@@ -84,7 +81,6 @@ class MaterialDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         #sampler = HardDisentangledSampler(self.data_val, batch_size=self.batch_size)
-
         return DataLoader(self.data_test,
                           batch_size=self.batch_size,
                           pin_memory=True,
