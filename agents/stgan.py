@@ -263,8 +263,14 @@ class STGANAgent(object):
         #bneck_size = bneck.shape
 
         all_recon = []
-        for _ in range(batch_size):
+        for _ in range(batch_size+1):
             bneck = [bneck_mater, bneck_shape, bneck_illum]
+            bneck = self.G.join_bneck(bneck)
+            img_hat = self.G.decode(bneck,label,enc_feat)
+            all_recon.append(img_hat)
+            if self.config.use_branches:
+                for layer in range(len(enc_feat[mode[0]])):
+                    enc_feat[mode[0]][layer] = torch.roll(enc_feat[mode[0]][layer], 1, dims=0)
             # only MATERIAL changes in the batch
             if torch.all(mode == 0):
                 bneck_mater = torch.roll(bneck_mater, 1, dims=0)
@@ -275,9 +281,6 @@ class STGANAgent(object):
             elif torch.all(mode == 2):
                 bneck_illum = torch.roll(bneck_illum, 1, dims=0)
 
-            bneck = self.G.join_bneck(bneck)
-            img_hat = self.G.decode(bneck,label,enc_feat)
-            all_recon.append(img_hat)
 
         all_recon = torch.cat((img, *all_recon), dim=-2)
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
