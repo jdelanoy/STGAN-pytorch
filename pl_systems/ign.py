@@ -41,9 +41,10 @@ class OriginalIGN(pl.LightningModule):
 
         self.example_input_array = [
             torch.rand(4, 3, 256, 256).clamp(-1, 1),
-            torch.ones(8, 1),
+            torch.ones(4, 1),
+            torch.ones(4, 1),
         ]
-    def testing_step(self, batch, batch_nb):
+    def test_step(self, batch, batch_nb):
         self.test_disentangle(batch)
 
     def training_step(self, batch, batch_nb):
@@ -87,7 +88,7 @@ class OriginalIGN(pl.LightningModule):
         self.log_dict(features_dist, on_step=True, on_epoch=False)
 
         # join bneck
-        bneck = self.model.join_bneck(bneck, bneck_size)
+        bneck = self.model.join_bneck(bneck)
 
         # compute L1 losses and perceptual losses on the generated image
         img_hat = self.model.decode(bneck, label, enc_feat)
@@ -149,7 +150,7 @@ class OriginalIGN(pl.LightningModule):
                 raise ValueError('data sampling  mode not understood')
 
             # reconstruct image
-            bneck = self.model.join_bneck(bneck, bneck_size)
+            bneck = self.model.join_bneck(bneck)
             img_hat = self.model.decode(bneck, label, enc_feat)
             all_recon.append(img_hat)
 
@@ -176,7 +177,7 @@ class OriginalIGN(pl.LightningModule):
 
         enc_feat,bneck = self.model.encode(img)
         #bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
-        splitted_bneck = self.split_bneck(bneck)
+        splitted_bneck = self.model.split_bneck(bneck)
         #for each property
         for label in range(len(splitted_bneck)):
             #add image in the left top corner
@@ -192,7 +193,7 @@ class OriginalIGN(pl.LightningModule):
                 #     for i in range(img.shape[0]): #for each image
                 #         encodings_copy[label][layer][i]=common_features[layer][c]
                 #decode for the encodings in encodings_copy
-                bneck = self.join_bneck(*encodings_copy)
+                bneck = self.model.join_bneck(encodings_copy)
                 fake_image=(self.model.decode(bneck, label, enc_feat))
                 #add reference image
                 fake_image=torch.cat((img[c].unsqueeze(0),fake_image),dim=0)
@@ -208,7 +209,7 @@ class OriginalIGN(pl.LightningModule):
         batch_size = img.size(0)
 
         enc_feat, bneck = self.model.encode(img)
-        bneck_material, bneck_shape, bneck_illum = self.split_bneck(bneck)
+        bneck_material, bneck_shape, bneck_illum = self.model.split_bneck(bneck)
 
         all_recon = []
         for shift in range(batch_size):
@@ -222,14 +223,14 @@ class OriginalIGN(pl.LightningModule):
             elif torch.all(mode == 2):
                 bneck_illum = torch.roll(bneck_illum, shift, dims=0)
 
-            bneck = self.join_bneck(bneck_material, bneck_shape, bneck_illum)
+            bneck = self.model.join_bneck([bneck_material, bneck_shape, bneck_illum])
             all_recon.append(self.model.decode(bneck, label, enc_feat))
 
         all_recon = torch.cat((img, *all_recon), dim=-2)
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
         self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
-    def forward(self, img, mode):
+    def forward(self, img, label, mode):
         img_hat = self.model(img, mode)
         return img_hat
 
@@ -257,24 +258,24 @@ class OriginalIGN(pl.LightningModule):
         # }
         return [optimizer], [scheduler]
 
-    def split_bneck(self, bneck, do_norm=False):
-        self.bneck_shape = bneck.shape
-        batch_size = bneck.size(0)
-        step = bneck.size(1) // 3
+    # def split_bneck(self, bneck, do_norm=False):
+    #     self.bneck_shape = bneck.shape
+    #     batch_size = bneck.size(0)
+    #     step = bneck.size(1) // 3
 
-        bneck_material = bneck[:, :step].view(batch_size, -1)  # 1/3 of the features
-        bneck_shape = bneck[:, step:step * 2].view(batch_size, -1)
-        bneck_illum = bneck[:, step * 2:].view(batch_size, -1)
+    #     bneck_material = bneck[:, :step].view(batch_size, -1)  # 1/3 of the features
+    #     bneck_shape = bneck[:, step:step * 2].view(batch_size, -1)
+    #     bneck_illum = bneck[:, step * 2:].view(batch_size, -1)
 
-        if do_norm:
-            bneck_material = bneck_material / bneck_material.norm(p=2)
-            bneck_shape = bneck_shape / bneck_shape.norm(p=2)
-            bneck_illum = bneck_illum / bneck_illum.norm(p=2)
+    #     if do_norm:
+    #         bneck_material = bneck_material / bneck_material.norm(p=2)
+    #         bneck_shape = bneck_shape / bneck_shape.norm(p=2)
+    #         bneck_illum = bneck_illum / bneck_illum.norm(p=2)
 
-        return bneck_material, bneck_shape, bneck_illum
+    #     return bneck_material, bneck_shape, bneck_illum
 
-    def join_bneck(self, *bnecks):
-        return torch.cat(bnecks, dim=1).view(*self.bneck_shape)
+    # def join_bneck(self, *bnecks):
+    #     return torch.cat(bnecks, dim=1).view(*self.bneck_shape)
 
     def reconstruction_loss(self,img_hat, img,loss):
         loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
