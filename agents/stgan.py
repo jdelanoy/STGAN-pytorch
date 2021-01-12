@@ -255,7 +255,7 @@ class STGANAgent(object):
             if writer:
                 self.writer.add_image('disentangle_{}'.format(label), make_grid(self.denorm(x_concat.data.cpu()), nrow=1),
                                         self.current_iteration)
-    def log_img_interpolation(self, img, label, mode):
+    def log_img_interpolation(self, img, label, mode,path):
         # forward through the model and get loss
         batch_size = img.size(0)
         enc_feat,bneck = self.G.encode(img)
@@ -281,6 +281,7 @@ class STGANAgent(object):
 
         all_recon = torch.cat((img, *all_recon), dim=-2)
         img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=batch_size)
+        save_image(img_log,path.format(mode[0]), nrow=1, padding=0)
         self.writer.add_image('roll', img_log, self.current_iteration)
 
 
@@ -594,7 +595,7 @@ class STGANAgent(object):
                         #path=os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}"))
                         #self.compute_disentangle_grid(Ia_sample,a_sample,path,writer=True)
                         self.compute_disentangle_grid(Ia_sample,a_sample,os.path.join(self.config.sample_dir, 'disentangle_{}_{}.jpg'.format(self.current_iteration,"{}")),writer=True)
-                        self.log_img_interpolation(Ia,a_att,mode)
+                        self.log_img_interpolation(Ia,a_att,mode,os.path.join(self.config.sample_dir, "roll_{}_{}.jpg".format(self.current_iteration,"{}")))
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
