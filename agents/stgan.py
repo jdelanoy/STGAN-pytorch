@@ -333,12 +333,14 @@ class STGANAgent(object):
         bneck_mean,enc_mean = mean_features
         bneck,encodings = features
 
-        loss=[0,0,0]
+        loss=[[],[],[]]
         for attr in range(len(bneck_mean)):
-            loss[attr] += torch.dist(bneck[attr],bneck_mean[attr], p=2).mean()
+            loss[attr].append( torch.dist(bneck[attr],bneck_mean[attr], p=2).mean())
+            #print("0", bneck[attr].shape)
             if self.config.use_branches:
                 for i in range(self.config.shortcut_layers+1):
-                    loss[attr] += torch.dist(encodings[attr][-i-1],enc_mean[attr][-i-1], p=2).mean()
+                    loss[attr].append(torch.dist(encodings[attr][-i-1],enc_mean[attr][-i-1], p=2).mean())
+                    #print(len(loss[attr])-1,encodings[attr][-i-1].shape)
         return loss        
 
 
@@ -487,17 +489,17 @@ class STGANAgent(object):
                     if self.config.do_mean_features : 
                         bneck = [bneck_mater, bneck_mean[1], bneck_mean[2]]
                         encodings=[encodings[0], enc_mean[1], enc_mean[2]]
-                    loss_material = 0
+                    loss_material = [torch.tensor(0.0)]
                 elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
                     if self.config.do_mean_features : 
                         bneck = [bneck_mean[0], bneck_shape, bneck_mean[2]]
                         encodings=[enc_mean[0], encodings[1], enc_mean[2]]
-                    loss_shape = 0
+                    loss_shape = [torch.tensor(0.0)]
                 elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
                     if self.config.do_mean_features : 
                         bneck = [bneck_mean[0], bneck_mean[1], bneck_illum]
                         encodings=[enc_mean[0], enc_mean[1], encodings[2]]
-                    loss_illum = 0
+                    loss_illum = [torch.tensor(0.0)]
                 # # Compute invariancy losses
                 # loss_shape = 0
                 # loss_illum = 0
@@ -523,9 +525,10 @@ class STGANAgent(object):
                 #     loss_material = torch.dist(bneck_mater, bneck_mater_mean,p=2).mean()
                 else:
                     raise ValueError('data sampling  mode not understood')
-                scalars["G/dist_shape"]=loss_shape
-                scalars["G/dist_illum"]=loss_illum
-                scalars["G/dist_material"]=loss_material
+
+                for i in range(len(loss_shape)):scalars['G/dist_shape_{}'.format(i)]=loss_shape[i]
+                for i in range(len(loss_illum)):scalars['G/dist_illum_{}'.format(i)]=loss_illum[i]
+                for i in range(len(loss_material)):scalars['G/dist_material_{}'.format(i)]=loss_material[i]
 
                 # join bneck
                 bneck = self.G.join_bneck(bneck)
@@ -536,7 +539,7 @@ class STGANAgent(object):
                 scalars['G/loss_rec'] = g_loss_rec.item()
         
                 if self.config.lambda_G_features > 0:
-                    invariancy_loss=(loss_shape + loss_illum + loss_material)*self.config.lambda_G_features
+                    invariancy_loss=(torch.mean(torch.stack(loss_shape)) + torch.mean(torch.stack(loss_illum)) + torch.mean(torch.stack(loss_material)))*self.config.lambda_G_features
                     g_loss += invariancy_loss
                     scalars['G/loss_invariancy'] = invariancy_loss
 
