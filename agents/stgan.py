@@ -489,17 +489,17 @@ class STGANAgent(object):
                     if self.config.do_mean_features : 
                         bneck = [bneck_mater, bneck_mean[1], bneck_mean[2]]
                         encodings=[encodings[0], enc_mean[1], enc_mean[2]]
-                    loss_material = [torch.tensor(0.0)]
+                    loss_material = [torch.tensor(0.0).to(self.device)]
                 elif torch.all(mode == 1):  # only GEOMETRY changes in the batch
                     if self.config.do_mean_features : 
                         bneck = [bneck_mean[0], bneck_shape, bneck_mean[2]]
                         encodings=[enc_mean[0], encodings[1], enc_mean[2]]
-                    loss_shape = [torch.tensor(0.0)]
+                    loss_shape = [torch.tensor(0.0).to(self.device)]
                 elif torch.all(mode == 2):  # only ILLUMINATION changes in the batch
                     if self.config.do_mean_features : 
                         bneck = [bneck_mean[0], bneck_mean[1], bneck_illum]
                         encodings=[enc_mean[0], enc_mean[1], encodings[2]]
-                    loss_illum = [torch.tensor(0.0)]
+                    loss_illum = [torch.tensor(0.0).to(self.device)]
                 # # Compute invariancy losses
                 # loss_shape = 0
                 # loss_illum = 0
@@ -537,7 +537,8 @@ class STGANAgent(object):
                 g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
                 g_loss = self.config.lambda_g_rec * g_loss_rec
                 scalars['G/loss_rec'] = g_loss_rec.item()
-                weights=torch.tensor([0.1,1,5,10])
+                weights=torch.tensor([0.1,0.1,1,5,10]).to(self.device)
+                #print(weights)
                 #print(loss_shape)
                 #print(torch.stack(loss_shape)*weights)
         
