@@ -537,9 +537,13 @@ class STGANAgent(object):
                 g_loss_rec = self.reconstruction_loss(Ia,Ia_hat,scalars)
                 g_loss = self.config.lambda_g_rec * g_loss_rec
                 scalars['G/loss_rec'] = g_loss_rec.item()
+                weights=torch.tensor([0.1,1,5,10])
+                #print(loss_shape)
+                #print(torch.stack(loss_shape)*weights)
         
                 if self.config.lambda_G_features > 0:
-                    invariancy_loss=(torch.mean(torch.stack(loss_shape)) + torch.mean(torch.stack(loss_illum)) + torch.mean(torch.stack(loss_material)))*self.config.lambda_G_features
+
+                    invariancy_loss=(torch.sum(torch.stack(loss_shape)*weights) + torch.sum(torch.stack(loss_illum)*weights) + torch.sum(torch.stack(loss_material)*weights))*self.config.lambda_G_features
                     g_loss += invariancy_loss
                     scalars['G/loss_invariancy'] = invariancy_loss
 
