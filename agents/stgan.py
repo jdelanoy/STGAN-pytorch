@@ -19,6 +19,7 @@ import cv2
 from sklearn.decomposition import PCA, FastICA
 from loss.loss_provider import LossProvider
 import torchvision.utils as tvutils
+import umap.umap_ as umap
 
 from datasets import *
 from models.stgan import Generator, Discriminator, Latent_Discriminator, GeneratorWithBranches
@@ -304,7 +305,7 @@ class STGANAgent(object):
                 self.train()
             else:
                 #self.test_pca()
-                self.test()
+                self.test_umap_disentangle()
                 self.test_disentangle()
                 #self.test_classif()
         except KeyboardInterrupt:
@@ -674,6 +675,72 @@ class STGANAgent(object):
                     #all_figs[i][0].show()
                     # result_path = os.path.join(self.config.result_dir, 'scores_{}_{}_{}.jpg'.format(label,1,self.config.checkpoint))
                     # all_figs[i][1].savefig(result_path, dpi=300, bbox_inches='tight')
+
+
+    def test_umap_disentangle(self):
+        self.load_checkpoint()
+
+        tqdm_loader = tqdm(self.data_loader.test_loader, total=self.data_loader.test_iterations,
+                          desc='Testing at checkpoint {}'.format(self.config.checkpoint))
+
+        self.G.eval()
+        self.D.eval()
+        
+        label_names={'shape':['blob', 'bunny', 'dragon', 'dragon2', 'einstein', 'einstein2', 'lucy', 'sphere', 'statue', 'suzanne', 'teapot', 'waterpot', 'zenith'],'illum':['doge2', 'ennis', 'glacier', 'grace', 'pisa', 'uffizi']}
+
+        colors=['black','red','cyan','blue','green','yellow','grey','white', 'orange','blue','magenta','red', 'yellow']
+        with torch.no_grad():
+            #save the features for each attribute
+            all_encodings=[] #array of the attributes, each will contain a list (for each layer) of numpy array (for each image)
+            all_images=[]
+            #all_figs=[]; ax=[]
+            #n_class = len(label_names[att])
+            #one figure per attribute
+            for attr in range(3):
+                all_encodings.append([])
+                #all_figs.append(plt.figure(figsize=(12,12)))
+                #ax.append(all_figs[i].gca())
+            #gather all the encodings
+            print(all_encodings)
+            for b, (x_real, _) in enumerate(tqdm_loader):
+                x_real = x_real.to(self.device)
+                encodings,bneck = self.G.encode(x_real)
+                splitted_bneck = self.G.split_bneck(bneck)
+                batch_size=x_real.shape[0]
+                if b == 0: all_images = x_real.cpu().numpy()
+                else : all_images= np.concatenate((all_images,x_real.cpu().numpy()))
+
+                for attr in range(len(splitted_bneck)):
+                    print(attr)
+                    z = splitted_bneck[attr].view(batch_size,-1).cpu().numpy()
+                    if b == 0: all_encodings[attr].append(z)
+                    else : all_encodings[attr][0] = np.concatenate((all_encodings[attr][0],z))
+                    if self.config.use_branches:
+                        for i in range(self.config.shortcut_layers+1):
+                            code = encodings[attr][-i-1].view(batch_size,-1).cpu().numpy()
+                            if b == 0: all_encodings[attr].append(code)
+                            else : all_encodings[attr][i+1] = np.concatenate((all_encodings[attr][i+1],code))
+            #compute umap and plot for each attribute
+            for attr in range(len(label_names)):
+                print(attr,len(all_encodings[attr]))
+                for layer in range(len(all_encodings[attr])):
+                    fig=plt.figure(figsize=(12,12))
+                    ax=fig.gca()
+                    codes=all_encodings[attr][layer]
+                    print(codes.shape)
+                    map = umap.UMAP()
+                    embedding = map.fit_transform(codes)
+                    for img in range(embedding.shape[0]):
+                        _imscatter(embedding[img][0], embedding[img][1],
+                                image=all_images[img].cpu(),
+                                color='black', 
+                                zoom=0.1,
+                                ax=ax)
+
+                    result_path = os.path.join(self.config.result_dir, 'umap_{}_{}_{}.jpg'.format(attr,layer,self.config.checkpoint))
+                    fig.savefig(result_path, dpi=300, bbox_inches='tight')
+                    #all_figs[i][0].show()
+
 
     def test(self):
         self.load_checkpoint()
