@@ -85,7 +85,7 @@ def get_encoder_layers(conv_dim=64, n_layers=5, max_dim = 1024, norm='batch',dro
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, 1,bias=bias),'leaky_relu',norm)]
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, kernel_sizes[i]//2,bias=bias),'leaky_relu',norm)]
         if (vgg_like and i >= 3 and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),'leaky_relu',norm)]
