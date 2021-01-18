@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 from torch.optim import lr_scheduler
 
-from models.network import FaderNet, Latent_Discriminator
+from models.networks import FaderNetGenerator, Latent_Discriminator
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 
 
@@ -19,7 +19,7 @@ class FaderNet(pl.LightningModule):
         self.hparams = hparams
 
         # create model
-        self.model = FaderNet(conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections, vgg_like=0, attr_dim=len(hparams.attrs), n_attr_deconv=1)
+        self.model = FaderNetGenerator(conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections, vgg_like=0, attr_dim=len(hparams.attrs), n_attr_deconv=1)
         self.latent_disc=Latent_Discriminator(image_size=hparams.image_size, attr_dim=len(hparams.attrs), conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections,fc_dim=1024, vgg_like=0)
         print(self.model)
 
@@ -36,7 +36,10 @@ class FaderNet(pl.LightningModule):
 
 
         self.example_input_array = [
-            torch.rand(4, 3, 128, 128).clamp(-1, 1)
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 1).clamp(-1, 1)
         ]
 
     def test_step(self, batch, batch_nb):
@@ -82,10 +85,21 @@ class FaderNet(pl.LightningModule):
 
         if batch_nb % self.hparams.img_log_iter == 0:
             #TODO do the attribute interpolation
-            self.tb_add_image('Reconstructed img', img_hat * 0.5 + 0.5, global_step=self.global_step)
+            self.log_img_interpolation(batch)
 
         return loss
 
+    def log_img_reconstruction(self, batch):
+        # forward through the model and get loss
+        img, normals, _, _ = batch
+        img_hat = self.model(img)
+
+        images=(img,normals,img_hat)
+
+        images = torch.cat(images, dim=-1)
+
+        img_log = tvutils.make_grid(images * 0.5 + 0.5, nrow=1)
+        self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
 
     def forward(self, img, normals, illum, mat_attr):

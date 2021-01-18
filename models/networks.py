@@ -113,15 +113,15 @@ class Unet(nn.Module):
         return self.decode(z,encodings)
 
 
-class FaderNet(nn.Module):
+class FaderNetGenerator(nn.Module):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1):
-        super(FaderNet, self).__init__()
+        super(FaderNetGenerator, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
 
         ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like, activation='leaky_relu')
         ##### build decoder
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
 
@@ -169,7 +169,7 @@ class Latent_Discriminator(nn.Module):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, norm='batch',dropout=0.3,vgg_like=vgg_like)
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, normalization='batch',dropout=0.3,vgg_like=vgg_like)
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
