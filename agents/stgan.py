@@ -306,7 +306,7 @@ class STGANAgent(object):
             else:
                 #self.test_pca()
                 self.test_umap_disentangle()
-                self.test_disentangle()
+                #self.test_disentangle()
                 #self.test_classif()
         except KeyboardInterrupt:
             self.logger.info('You have entered CTRL+C.. Wait to finalize')
@@ -708,11 +708,11 @@ class STGANAgent(object):
                 encodings,bneck = self.G.encode(x_real)
                 splitted_bneck = self.G.split_bneck(bneck)
                 batch_size=x_real.shape[0]
-                if b == 0: all_images = x_real.cpu().numpy()
-                else : all_images= np.concatenate((all_images,x_real.cpu().numpy()))
+                if b == 0: all_images = x_real.cpu()#.numpy()
+                else : all_images= torch.cat((all_images,x_real.cpu()),0)#.numpy()))
 
                 for attr in range(len(splitted_bneck)):
-                    print(attr)
+                    #print(attr)
                     z = splitted_bneck[attr].view(batch_size,-1).cpu().numpy()
                     if b == 0: all_encodings[attr].append(z)
                     else : all_encodings[attr][0] = np.concatenate((all_encodings[attr][0],z))
@@ -722,18 +722,22 @@ class STGANAgent(object):
                             if b == 0: all_encodings[attr].append(code)
                             else : all_encodings[attr][i+1] = np.concatenate((all_encodings[attr][i+1],code))
             #compute umap and plot for each attribute
-            for attr in range(len(label_names)):
+            for attr in range(len(all_encodings)):
                 print(attr,len(all_encodings[attr]))
                 for layer in range(len(all_encodings[attr])):
                     fig=plt.figure(figsize=(12,12))
                     ax=fig.gca()
                     codes=all_encodings[attr][layer]
                     print(codes.shape)
-                    map = umap.UMAP()
+                    map = umap.UMAP(n_neighbors=5,
+                                    init='spectral',
+                                    min_dist=0.01,
+                                    metric='l2',
+                                    random_state=1)
                     embedding = map.fit_transform(codes)
                     for img in range(embedding.shape[0]):
                         _imscatter(embedding[img][0], embedding[img][1],
-                                image=all_images[img].cpu(),
+                                image=all_images[img],
                                 color='black', 
                                 zoom=0.1,
                                 ax=ax)
