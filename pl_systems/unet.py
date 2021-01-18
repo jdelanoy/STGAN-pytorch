@@ -36,7 +36,10 @@ class NormalUnet(pl.LightningModule):
 
 
         self.example_input_array = [
-            torch.rand(4, 3, 128, 128).clamp(-1, 1)
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 3, 128, 128).clamp(-1, 1),
+            torch.rand(4, 1).clamp(-1, 1)
         ]
 
     def test_step(self, batch, batch_nb):
@@ -47,12 +50,12 @@ class NormalUnet(pl.LightningModule):
         normals_hat = self.model(img)
 
         loss = {}
-        loss['reconstruction']=F.l1_loss(normals_hat, normals) #TODO change the loss
+        loss['G/reconstruction']=F.l1_loss(normals_hat, normals) #TODO change the loss
+        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
         return loss, normals_hat
 
     def training_step(self, batch, batch_nb):
         loss,_=self.shared_step(batch)
-        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
         self.log_dict(loss, on_step=True, on_epoch=False)
         return loss
 
@@ -64,13 +67,25 @@ class NormalUnet(pl.LightningModule):
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         if batch_nb % self.hparams.img_log_iter == 0:
-            self.tb_add_image('Reconstructed img', normals_hat * 0.5 + 0.5, global_step=self.global_step)
+            self.log_img_reconstruction(batch)
 
         return loss
 
     def forward(self, img, normals, illum, mat_attr):
         img_hat = self.model(img)
         return img_hat
+
+    def log_img_reconstruction(self, batch):
+        # forward through the model and get loss
+        img, normals, _, _ = batch
+        normals_hat = self.model(img)
+
+        images=(img,normals,normals_hat)
+
+        images = torch.cat(images, dim=-1)
+
+        img_log = tvutils.make_grid(images * 0.5 + 0.5, nrow=1)
+        self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
     def on_epoch_end(self):
         self.eval()
