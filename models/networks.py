@@ -119,9 +119,10 @@ class FaderNetGenerator(nn.Module):
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-
+        self.attr_dim = attr_dim
+        self.n_attr_deconv = n_attr_deconv
         ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like, activation='leaky_relu')
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
         ##### build decoder
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
 
@@ -131,15 +132,15 @@ class FaderNetGenerator(nn.Module):
 
     def decode(self, a, bneck, encodings):
         #expand dimensions of a
-        a = a.view((bneck.size(0), self.n_attrs, 1, 1))
+        a = a.view((bneck.size(0), self.attr_dim, 1, 1))
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
                 #concatenate attribute
                 size = out.size(2)
-                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                attr = a.expand((out.size(0), self.attr_dim, size, size))
                 out = torch.cat([out, attr], dim=1)
-            if 0 < i <= self.shortcut_layers:
+            if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))

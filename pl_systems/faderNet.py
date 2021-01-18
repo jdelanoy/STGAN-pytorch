@@ -50,21 +50,21 @@ class FaderNet(pl.LightningModule):
         img, _, _, mat_attr = batch
         loss = {}
         #go through generator
-        encodings,z = self.encode(img)
-        img_hat = self.decode(mat_attr,z,encodings)
+        encodings,z = self.model.encode(img)
+        img_hat = self.model.decode(mat_attr,z,encodings)
         #go through latent disc
         out_att = self.latent_disc(z)
 
         #train generator
         if optimizer_idx == 0:
-            loss['G/loss_latent'] = -self.regression_loss(out_att, mat_attr) * self.config.lambda_G_latent
-            loss['G/loss_rec']=self.reconstruction_loss(img, img_hat) 
+            loss['G/loss_latent'] = -self.regression_loss(out_att, mat_attr) * self.hparams.lambda_G_latent
+            self.reconstruction_loss(img, img_hat,loss) 
             loss['loss'] = torch.stack([v for v in loss.values()]).sum()
             self.log_dict(loss, on_step=True, on_epoch=False)
             return loss
         #train latent disc
         if optimizer_idx == 1:
-            loss['LD/loss'] = self.regression_loss(out_att, mat_attr)*self.config.lambda_LD
+            loss['LD/loss'] = self.regression_loss(out_att, mat_attr)*self.hparams.lambda_LD
             loss['loss'] = torch.stack([v for v in loss.values()]).sum()
             self.log_dict(loss, on_step=True, on_epoch=False)
             return loss
@@ -74,27 +74,27 @@ class FaderNet(pl.LightningModule):
         img, _, _, mat_attr = batch
         loss = {}
         #go through generator
-        encodings,z = self.encode(img)
-        img_hat = self.decode(mat_attr,z,encodings)
+        encodings,z = self.model.encode(img)
+        img_hat = self.model.decode(mat_attr,z,encodings)
         #go through latent disc
         out_att = self.latent_disc(z)
 
-        loss['G/loss_rec']=self.reconstruction_loss(img, img_hat) 
+        self.reconstruction_loss(img, img_hat,loss) 
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         if batch_nb % self.hparams.img_log_iter == 0:
             #TODO do the attribute interpolation
-            self.log_img_interpolation(batch)
+            self.log_img_reconstruction(batch)
 
         return loss
 
     def log_img_reconstruction(self, batch):
         # forward through the model and get loss
-        img, normals, _, _ = batch
-        img_hat = self.model(img)
+        img, _, _, mat_attr = batch
+        img_hat = self.model(img,mat_attr)
 
-        images=(img,normals,img_hat)
+        images=(img,img,img_hat)
 
         images = torch.cat(images, dim=-1)
 
@@ -177,15 +177,14 @@ class FaderNet(pl.LightningModule):
             parser.add_argument('--conv_dim', default=64, type=int)
             parser.add_argument('--n_layers', default=6, type=int)
             parser.add_argument('--max_dim', default=512, type=int)
-            parser.add_argument('--skip-connections', default=2, type=int)
+            parser.add_argument('--skip-connections', default=0, type=int)
 
             # optimizer parameters
             parser.add_argument('--optimizer', default='adam', type=str)
             parser.add_argument('--lambda_G_l1', default=1, type=float)
             parser.add_argument('--lambda_G_perc', default=0.1, type=float)
             parser.add_argument('--lambda_G_style', default=0.1, type=float)
-            parser.add_argument('--lambda_G_features', default=0.01, type=float)
-            parser.add_argument('--lambda_G_latent', default=0.01, type=float)
+            parser.add_argument('--lambda_G_latent', default=0.1, type=float)
             parser.add_argument('--lambda_LD', default=0.01, type=float)
             # logging parameters
             parser.add_argument('--img-log-iter', default=500, type=str)

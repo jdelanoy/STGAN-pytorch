@@ -33,7 +33,7 @@ class MaterialDataModule(pl.LightningDataModule):
     def setup(self, stage):
         train_trf, val_trf = self.setup_transforms()
         self.data_train = MaterialDataset(self.root, 'train', self.attrs,self.use_disentangled_sampler, train_trf)
-        self.data_val = MaterialDataset(self.root, 'train', self.attrs,self.use_disentangled_sampler, val_trf)
+        self.data_val = MaterialDataset(self.root, 'val', self.attrs,self.use_disentangled_sampler, val_trf)
         self.data_test = MaterialDataset(self.root, 'test', self.attrs,False, val_trf) #never use disentangle sampler for test
 
     def setup_transforms(self):
