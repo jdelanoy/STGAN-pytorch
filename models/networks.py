@@ -1,0 +1,218 @@
+import torch
+import torch.nn as nn
+from torchsummary import summary
+import numpy as np
+
+from models.blocks import * 
+
+
+def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, activation='relu', normalization='batch',dropout=0, vgg_like=0):
+    bias = normalization == 'none'  # use bias only if we do not use a normalization layer
+    kernel_sizes=[7,5,5,3,3,3,3]
+
+    layers = []
+    in_channels = 3
+    out_channels = conv_dim
+    for i in range(n_layers):
+        #print(i, in_channels,out_channels)
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, kernel_sizes[i]//2,bias=bias),activation,normalization)]
+        if (i >= n_layers-1-vgg_like and i<n_layers-1):
+            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
+            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
+        if dropout > 0:
+            enc_layer.append(nn.Dropout(dropout))
+        layers.append(nn.Sequential(*enc_layer))
+        in_channels = out_channels
+        out_channels=min(2*out_channels,max_dim)
+    return layers
+
+
+
+class Encoder(nn.Module):
+    def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
+        super(Encoder, self).__init__()
+        act='leaky_relu'
+        norm='batch'
+        bias = norm == 'none'
+        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim,normalization=norm,activation=act,vgg_like=vgg_like) #NOTE bias=false for STGAN
+        self.encoder = nn.ModuleList(enc_layers)
+
+        self.bottleneck = nn.ModuleList([
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+        ])
+    #return [encodings,bneck]
+    def encode(self,x):
+        # Encoder
+        x_encoder = []
+        for block in self.encoder:
+            x = block(x)
+            x_encoder.append(x)
+
+        # Bottleneck
+        for block in self.bottleneck:
+            x = block(x)
+        return x_encoder, x
+
+
+
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch'):
+    bias=False
+    decoder = nn.ModuleList()
+    for i in reversed(range(n_layers)):
+        #size of inputs/outputs
+        dec_out = min(max_dim,conv_dim * 2 ** (i-1))
+        dec_in = min(max_dim,conv_dim * 2 ** (i))
+        enc_size = min(max_dim,conv_dim * 2 ** (i)) #corresponding encoding size (for skip connections)
+        
+        if i == n_layers-1: dec_in = enc_size * n_branches
+        if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
+        if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
+            dec_in = dec_in + max(1,n_branches-1)*enc_size 
+        if (i==0): dec_out=conv_dim // 4
+
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
+        if vgg_like > 0 and i >= n_layers - vgg_like:
+            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
+        decoder.append(nn.Sequential(*dec_layer))
+
+    last_conv = nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=True)
+    return decoder, last_conv
+
+
+class Unet(nn.Module):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, skip_connections=2,vgg_like=0):
+        super(Unet, self).__init__()
+        self.n_layers = n_layers
+        self.skip_connections = min(skip_connections, n_layers - 1)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
+        ##### build encoder
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        ##### build decoder
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like)
+
+    #return [encodings,bneck]
+    def encode(self,x):
+        return self.encoder.encode(x)
+
+    def decode(self, bneck, encodings):
+        #expand dimensions of a
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            if 0 < i <= self.skip_connections:
+                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = dec_layer(self.up(out))
+        x = self.last_conv(out)
+        x = torch.tanh(x)
+        return x
+
+    def forward(self, x):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(z,encodings)
+
+
+class FaderNet(nn.Module):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1):
+        super(FaderNet, self).__init__()
+        self.n_layers = n_layers
+        self.skip_connections = min(skip_connections, n_layers - 1)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
+        ##### build encoder
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        ##### build decoder
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
+
+    #return [encodings,bneck]
+    def encode(self,x):
+        return self.encoder.encode(x)
+
+    def decode(self, a, bneck, encodings):
+        #expand dimensions of a
+        a = a.view((bneck.size(0), self.n_attrs, 1, 1))
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            if i < self.n_attr_deconv:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((out.size(0), self.n_attrs, size, size))
+                out = torch.cat([out, attr], dim=1)
+            if 0 < i <= self.shortcut_layers:
+                #do shortcut connection, not taking the first encoding (mat)
+                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = dec_layer(self.up(out))
+        x = self.last_conv(out)
+        x = torch.tanh(x)
+        return x
+
+    def forward(self, x,a):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(a,z,encodings)
+
+
+
+
+def FC_layers(in_dim,fc_dim,out_dim,tanh):
+    layers=[nn.Linear(in_dim, fc_dim),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Linear(fc_dim, out_dim)]
+    if tanh:
+        layers.append(nn.Tanh())
+    return nn.Sequential(*layers)
+
+
+class Latent_Discriminator(nn.Module):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0):
+        super(Latent_Discriminator, self).__init__()
+        layers = []
+        n_dis_layers = int(np.log2(image_size))
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, norm='batch',dropout=0.3,vgg_like=vgg_like)
+        self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
+
+        out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
+        self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
+
+    def forward(self, x):
+        y = self.conv(x)
+        y = y.view(y.size()[0], -1)
+        logit_att = self.fc_att(y)
+        return logit_att
+
+
+class Discriminator(nn.Module):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
+        super(Discriminator, self).__init__()
+        layers = []
+        layers=build_encoder_layers(conv_dim,n_layers, max_dim, norm='batch')
+        self.conv = nn.Sequential(*layers)
+
+        feature_size = image_size // 2**n_layers
+        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
+        self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
+        self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
+
+    def forward(self, x):
+        y = self.conv(x)
+        y = y.view(y.size()[0], -1)
+        logit_adv = self.fc_adv(y)
+        logit_att = self.fc_att(y)
+        return logit_adv, logit_att
+
+
+
+
+if __name__ == '__main__':
+    gen = Generator(5, conv_dim=32, n_layers=6, skip_connections=0, max_dim=512,vgg_like=True)
+
+    print(gen)
+    #summary(gen, [(3, 128, 128), (5,)], device='cpu')
+
+    # dis = Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=7)
+    # print(dis)
+    # #summary(dis, (3, 128, 128), device='cpu')
+
+    # dis = Latent_Discriminator(image_size=128, max_dim=512, attr_dim=5,conv_dim=32,n_layers=6,skip_connections=2)
+    # print(dis)

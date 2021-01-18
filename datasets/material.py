@@ -43,7 +43,7 @@ def make_dataset(root, mode, selected_attrs):
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
-        lines = lines_test[:100]+random.sample(lines_train,50) #for full dataset
+        lines = lines_test[:6]+random.sample(lines_train,6) #for full dataset
 
         # #only from one shape/one env
         # shape=""
@@ -55,7 +55,7 @@ def make_dataset(root, mode, selected_attrs):
     #print(len(lines))
 
     files = []
-    labels = []
+    mat_attrs = []
     material = []
     geometry = []
     illumination = []
@@ -64,20 +64,20 @@ def make_dataset(root, mode, selected_attrs):
         filename = split[0]
         values = split[1:]
 
-        label = []
+        mat_attr = []
         for attr_name in selected_attrs:
             idx = attr2idx[attr_name]
-            label.append(float(values[idx]) * 2 - 1)
+            mat_attr.append(float(values[idx]) * 2 - 1)
 
         files.append(filename)
-        labels.append(label)
+        mat_attrs.append(mat_attr)
         filename_split = filename.split('@')[1].split('.')[0].split('_')
         material.append(filename_split[1])
         geometry.append(filename_split[0])
         illumination.append(filename_split[2])
 
     return {'files': files,
-            'labels': labels,
+            'mat_attrs': mat_attrs,
             'materials': material,
             'geometries': geometry,
             'illuminations': illumination}
@@ -115,17 +115,17 @@ class DisentangledSampler(torch.utils.data.sampler.Sampler):
             # see other objects in the dataset that we can sample according to the
             # given mode
             if mode == 0:  # only MATERIAL changes in the batch
-                materials = True #self.mats != material_idx
+                materials = self.mats != material_idx
                 geometries = self.geoms == geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 1:  # only GEOMETRY changes in the batch
                 materials = self.mats == material_idx
-                geometries = True #self.geoms != geometry_idx
+                geometries = self.geoms != geometry_idx
                 illumination = self.illums == illumination_idx
             if mode == 2:  # only ILLUMINATION changes in the batch
                 materials = self.mats == material_idx
                 geometries = self.geoms == geometry_idx
-                illumination = True #self.illums != illumination_idx
+                illumination = self.illums != illumination_idx
 
             # get the intersection of the possible factors to sample
             possible_idx = materials * geometries * illumination
@@ -155,11 +155,11 @@ def list2idxs(l):
 
 
 class MaterialDataset(data.Dataset):
-    def __init__(self, root, mode, selected_attrs, transform=None):
+    def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None):
         items = make_dataset(root, mode, selected_attrs)
 
         self.files = items['files']
-        self.labels = items['labels']
+        self.mat_attrs = items['mat_attrs']
 
         mats, self.idx2mats, self.mats2idxs = list2idxs(items['materials'])
         geoms, self.idx2geoms, self.geoms2idx = list2idxs(items['geometries'])
@@ -171,16 +171,17 @@ class MaterialDataset(data.Dataset):
 
         self.root = os.path.join(root, '256px_dataset')
         self.mode = mode
+        self.disentangled=disentangled
         self.transform = transform
 
     def __getitem__(self, index_and_mode):
-        if self.mode in ['train']:
+        if self.disentangled:
             index, sampling_mode = index_and_mode
         else:
             index = index_and_mode
         
         filename = os.path.join(self.root, self.files[index])
-        label = self.labels[index]
+        mat_attr = self.mat_attrs[index]
         #mat=self.mats[index]
         #geom=self.geoms[index]
         #illum=self.illums[index]
@@ -188,11 +189,14 @@ class MaterialDataset(data.Dataset):
         image = Image.open(filename)
         if self.transform is not None:
             image = self.transform(image)
-        #print([mat,geom,illum ])
-        if self.mode in ['train']:
-            return image, torch.FloatTensor(label), sampling_mode
+        #TODO also load normals/illum and apply the exact same transformation
+        normals=image
+        illum=image
+
+        if self.disentangled:
+            return image,normals,illum, torch.FloatTensor(mat_attr), sampling_mode
         else:
-            return image, torch.FloatTensor(label)
+            return image,normals,illum, torch.FloatTensor(mat_attr)
 
     def __len__(self):
         return len(self.files)
