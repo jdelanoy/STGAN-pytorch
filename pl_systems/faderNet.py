@@ -1,4 +1,6 @@
 import argparse
+import numpy as np
+import cv2
 
 import pytorch_lightning as pl
 import torch
@@ -80,14 +82,50 @@ class FaderNet(pl.LightningModule):
         out_att = self.latent_disc(z)
 
         self.reconstruction_loss(img, img_hat,loss) 
+        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         if batch_nb % self.hparams.img_log_iter == 0:
             #TODO do the attribute interpolation
             self.log_img_reconstruction(batch)
+            self.log_img_attr_interpolation(batch)
 
         return loss
+
+    #### do not need to be in FaderNet module
+    def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
+        """Generate target domain labels for debugging and testing: linearly sample attribute"""
+        c_trg_list = []
+        for i in range(len(selected_attrs)):
+            alphas = np.linspace(-max_val, max_val, 10)
+            for alpha in alphas:
+                c_trg = c_org.clone()
+                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
+                c_trg_list.append(c_trg)
+        return c_trg_list
+    #### do not need to be in FaderNet module
+    def write_labels_on_images(self,images, labels):
+        for im in range(images.shape[0]):
+            text_image=np.zeros((128,128,3), np.uint8)
+            for i in range(labels.shape[1]):
+                cv2.putText(text_image, "%.2f"%(labels[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+            image_numpy=((text_image.astype(np.float32))/255).transpose(2,0,1)+images[im].cpu().detach().numpy()
+            images[im]= torch.from_numpy(image_numpy)
+    def log_img_attr_interpolation(self, batch):
+        img, _, _, mat_attr = batch
+
+        #interpolated attributes
+        all_attr = self.create_interpolated_attr(mat_attr,self.hparams.attrs)
+        all_recon = []
+        for fake_attr in all_attr:
+            img_hat = self.model(img,fake_attr)
+            self.write_labels_on_images(img_hat, fake_attr)
+            all_recon.append(img_hat)
+
+        all_recon = torch.cat((img, *all_recon), dim=-1)
+        img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=1)
+        self.tb_add_image('Interpolation img', img_log, global_step=self.global_step)
 
     def log_img_reconstruction(self, batch):
         # forward through the model and get loss
@@ -171,10 +209,10 @@ class FaderNet(pl.LightningModule):
 
             # dataset parameters
             parser.add_argument('--num-workers', default=10, type=int)
-            parser.add_argument('--batch-size', default=6, type=int)
+            parser.add_argument('--batch-size', default=32, type=int)
 
             # model cfg parameters
-            parser.add_argument('--conv_dim', default=64, type=int)
+            parser.add_argument('--conv_dim', default=32, type=int)
             parser.add_argument('--n_layers', default=6, type=int)
             parser.add_argument('--max_dim', default=512, type=int)
             parser.add_argument('--skip-connections', default=0, type=int)
@@ -184,7 +222,7 @@ class FaderNet(pl.LightningModule):
             parser.add_argument('--lambda_G_l1', default=1, type=float)
             parser.add_argument('--lambda_G_perc', default=0.1, type=float)
             parser.add_argument('--lambda_G_style', default=0.1, type=float)
-            parser.add_argument('--lambda_G_latent', default=0.1, type=float)
+            parser.add_argument('--lambda_G_latent', default=1, type=float)
             parser.add_argument('--lambda_LD', default=0.01, type=float)
             # logging parameters
             parser.add_argument('--img-log-iter', default=500, type=str)
