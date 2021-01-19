@@ -232,8 +232,7 @@ class MaterialDataLoader(object):
                 transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
             train_transform = transforms.Compose(transform)
             train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
-            sampler = DisentangledSampler(train_set, batch_size=batch_size)
-            self.train_loader = data.DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=4)
+            self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
             test_transform = transforms.Compose(transform)
