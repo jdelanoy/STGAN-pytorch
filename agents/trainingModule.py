@@ -148,7 +148,8 @@ class TrainingModule(object):
         start_batch = self.current_iteration // self.data_loader.train_iterations
         tdqm_post={"Time":"0"}
         for batch in range(start_batch, self.config.max_epoch):
-            tqdm_loader = tqdm(self.data_loader.train_loader, total=self.data_loader.train_iterations, desc='Batch {}'.format(batch),postfix=tdqm_post)
+            tdqm_post["Time"]=str(datetime.timedelta(seconds=time.time() - start_time))[:-7]
+            tqdm_loader = tqdm(self.data_loader.train_loader, total=self.data_loader.train_iterations, desc='Batch {}'.format(batch),postfix=tdqm_post,leave=False)
             # for it in range(self.data_loader.train_iterations): #tdqm
             #     # fetch data
             #     try:
@@ -168,8 +169,7 @@ class TrainingModule(object):
 
                 # print summary on terminal and on tensorboard
                 if self.current_iteration % self.config.summary_step == 0:
-                    et = time.time() - start_time
-                    tdqm_post["Time"]=str(datetime.timedelta(seconds=et))[:-7]
+                    tdqm_post["Time"]=str(datetime.timedelta(seconds=time.time() - start_time))[:-7]
                     tqdm_loader.set_postfix(tdqm_post)
                     for tag, value in scalars.items():
                         self.writer.add_scalar(tag, value, self.current_iteration)
