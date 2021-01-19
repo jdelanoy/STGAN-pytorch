@@ -24,7 +24,7 @@ class FaderNet(pl.LightningModule):
         self.model = FaderNetGenerator(conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections, vgg_like=0, attr_dim=len(hparams.attrs), n_attr_deconv=1)
         self.latent_disc=Latent_Discriminator(image_size=hparams.image_size, attr_dim=len(hparams.attrs), conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections,fc_dim=1024, vgg_like=0)
         print(self.model)
-
+        print(self.latent_disc)
         # dicts to store the images during train/val steps
         self.last_val_batch = {}
         self.last_val_pred = {}
@@ -88,7 +88,7 @@ class FaderNet(pl.LightningModule):
 
         if batch_nb % self.hparams.img_log_iter == 0:
             #TODO do the attribute interpolation
-            self.log_img_reconstruction(batch)
+            #self.log_img_reconstruction(batch)
             self.log_img_attr_interpolation(batch)
 
         return loss
@@ -96,7 +96,7 @@ class FaderNet(pl.LightningModule):
     #### do not need to be in FaderNet module
     def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
-        c_trg_list = []
+        c_trg_list = [c_org]
         for i in range(len(selected_attrs)):
             alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
@@ -112,6 +112,7 @@ class FaderNet(pl.LightningModule):
                 cv2.putText(text_image, "%.2f"%(labels[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
             image_numpy=((text_image.astype(np.float32))/255).transpose(2,0,1)+images[im].cpu().detach().numpy()
             images[im]= torch.from_numpy(image_numpy)
+
     def log_img_attr_interpolation(self, batch):
         img, _, _, mat_attr = batch
 
@@ -149,15 +150,15 @@ class FaderNet(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.hparams.optimizer.lower() == 'adam':
-            optimizer1 = torch.optim.Adam(self.model.parameters(),lr=0.0001, betas=(0.9, 0.999))
-            optimizer2 = torch.optim.Adam(self.latent_disc.parameters(),lr=0.0001, betas=(0.9, 0.999))
+            optimizer1 = torch.optim.Adam(self.model.parameters(),lr=0.0002, betas=(0.9, 0.999))
+            optimizer2 = torch.optim.Adam(self.latent_disc.parameters(),lr=0.00002, betas=(0.9, 0.999))
         elif self.hparams.optimizer.lower() == 'sgd':
             optimizer1 = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4, nesterov=True)
             optimizer2 = torch.optim.SGD(self.latent_disc.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4, nesterov=True)
         else:
             raise ValueError('--optimizer should be one of [sgd, adam]')
-        scheduler1 = lr_scheduler.StepLR(optimizer1, 50000)
-        scheduler2 = lr_scheduler.StepLR(optimizer2, 50000)
+        scheduler1 = lr_scheduler.StepLR(optimizer1, 100000)
+        scheduler2 = lr_scheduler.StepLR(optimizer2, 100000)
         # scheduler = {
         #     'scheduler': lr_scheduler.ReduceLROnPlateau(
         #         optimizer=optimizer,
@@ -170,26 +171,17 @@ class FaderNet(pl.LightningModule):
         return [optimizer1, optimizer2], [scheduler1,scheduler2]
 
 
-    # # Alternating schedule for optimizer steps (ie: GANs)
-    # def optimizer_step(self, current_epoch, batch_nb, optimizer, optimizer_idx, closure, on_tpu=False, using_native_amp=False, using_lbfgs=False):
-    #     # update generator opt every 2 steps
-    #     if optimizer_idx == 0:
-    #         if batch_nb % 2 == 0 :
-    #         optimizer.step(closure=closure)
-
-    #     # update discriminator opt every 2 steps
-    #     if optimizer_idx == 1:
-    #         if batch_nb % 2 == 1 :
-    #         optimizer.step(closure=closure)  
-
 
     def reconstruction_loss(self,img_hat, img,loss):
-        loss['G/loss_l1'] = F.l1_loss(img_hat, img)*self.hparams.lambda_G_l1
+        loss['G/loss_l1'] = F.mse_loss(img_hat, img)*self.hparams.lambda_G_l1
         if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
             f_img = self.vgg16_f(img)
             f_img_hat = self.vgg16_f(img_hat)
-            loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+            if self.hparams.lambda_G_perc > 0:
+                loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+            if self.hparams.lambda_G_style > 0:
+                loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+
     def regression_loss(self, logit, target):
         return F.l1_loss(logit,target)/ logit.size(0)
 
