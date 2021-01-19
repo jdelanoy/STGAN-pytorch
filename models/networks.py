@@ -7,15 +7,15 @@ from models.blocks import *
 
 
 def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, activation='relu', normalization='batch',dropout=0, vgg_like=0):
-    bias = normalization == 'none'  # use bias only if we do not use a normalization layer
-    kernel_sizes=[7,5,5,3,3,3,3]
-
+    bias = True #normalization == 'none'  # use bias only if we do not use a normalization layer  #TODO old archi
+    kernel_sizes=[4,4,4,4,4,4,4] #[7,5,5,3,3,3,3]  #TODO old archi
+    
     layers = []
     in_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, kernel_sizes[i]//2,bias=bias),activation,normalization)]
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization  if i>0 else 'none')] #TODO
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
@@ -33,13 +33,12 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         act='leaky_relu'
         norm='batch'
-        bias = norm == 'none'
-        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim,normalization=norm,activation=act,vgg_like=vgg_like) #NOTE bias=false for STGAN
+        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim,normalization=norm,activation=act,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
 
-        self.bottleneck = nn.ModuleList([
-            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
-            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+        self.bottleneck = nn.ModuleList([  #TODO old archi
+            #BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            #BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
         ])
     #return [encodings,bneck]
     def encode(self,x):
@@ -57,7 +56,7 @@ class Encoder(nn.Module):
 
 
 def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch'):
-    bias=False
+    bias=True  #TODO old archi
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
         #size of inputs/outputs
@@ -69,9 +68,9 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, skip_connections=
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
-        if (i==0): dec_out=conv_dim // 4
+        if (i==0): dec_out=3 #conv_dim // 4  #TODO old archi
 
-        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation if i>0 else 'none',normalization=normalization  if i>0 else 'none')] #TODO
         if vgg_like > 0 and i >= n_layers - vgg_like:
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
@@ -85,7 +84,7 @@ class Unet(nn.Module):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.up = nn.UpsamplingNearest2d(scale_factor=2) #nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) #TODO old archi
 
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
@@ -103,7 +102,7 @@ class Unet(nn.Module):
             if 0 < i <= self.skip_connections:
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
-        x = self.last_conv(out)
+        x = out#self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
         return x
 
@@ -144,7 +143,7 @@ class FaderNetGenerator(nn.Module):
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
-        x = self.last_conv(out)
+        x = out#self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
         return x
 
@@ -170,7 +169,7 @@ class Latent_Discriminator(nn.Module):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, normalization='batch',dropout=0.3,vgg_like=vgg_like)
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, normalization='batch',activation='leaky_relu',dropout=0.3,vgg_like=vgg_like) #TODO act
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
