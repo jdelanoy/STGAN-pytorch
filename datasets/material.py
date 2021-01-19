@@ -208,37 +208,47 @@ class MaterialDataLoader(object):
         if mode not in ['train', 'test']:
             return
 
-        transform = []
-        if crop_size is not None:
-            transform.append(transforms.CenterCrop(crop_size))
-        transform.append(transforms.Resize(image_size))
-        transform.append(transforms.ToTensor())
-        transform.append(transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
+        self.root = root
+        self.data_augmentation = data_augmentation
+        self.image_size = image_size
+        self.crop_size = crop_size
 
+
+        train_trf, val_trf = self.setup_transforms()
         if mode == 'train':
             print("loading data")
-            val_transform = transforms.Compose(transform)       # make val loader before transform is inserted
-            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_transform)
-            #sampler = DisentangledSampler(val_set, batch_size=batch_size)
-            #self.val_loader = data.DataLoader(val_set, batch_size=batch_size, sampler=sampler, num_workers=4)
+            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf)
             self.val_loader = data.DataLoader(val_set, batch_size=20, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
-            if data_augmentation:
-                transform.insert(0, transforms.RandomHorizontalFlip())
-                transform.insert(0, transforms.RandomVerticalFlip())
-                transform.insert(0, transforms.RandomCrop(size=crop_size))
-                transform.insert(0, RandomResize(low=256, high=300))
-                transform.insert(0, transforms.RandomRotation(degrees=(-5, 5)))
-            train_transform = transforms.Compose(transform)
-            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_transform)
+            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf)
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
-            test_transform = transforms.Compose(transform)
-            test_set = MaterialDataset(root, 'test', selected_attrs, transform=test_transform)
+            test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf)
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
+    def setup_transforms(self):
+        val_trf = transforms.Compose([
+            transforms.CenterCrop(self.crop_size),
+            transforms.Resize(self.image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        ])
+        if self.data_augmentation:
+            train_trf = transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+                transforms.RandomCrop(size=self.crop_size),
+                RandomResize(low=256, high=300),
+                transforms.RandomRotation(degrees=(-5, 5)),
+                val_trf,
+            ])
+        else:
+            train_trf = val_trf
+
+        return train_trf, val_trf
+
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader

@@ -5,6 +5,9 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from skimage import transform
 import numpy as np
 from torchvision import transforms
+import cv2
+import torch
+
 
 
 def _imscatter(x, y, image, color=None, ax=None, zoom=1.):
@@ -38,3 +41,16 @@ def _imscatter(x, y, image, color=None, ax=None, zoom=1.):
     ax.update_datalim(np.column_stack([x, y]))
     ax.autoscale()
     return artists
+
+def denorm(x):
+    #get from [-1,1] to [0,1]
+    out = (x + 1) / 2
+    return out.clamp_(0, 1)
+
+def write_labels_on_images(images, labels):
+    for im in range(images.shape[0]):
+        text_image=np.zeros((128,128,3), np.uint8)
+        for i in range(labels.shape[1]):
+            cv2.putText(text_image, "%.2f"%(labels[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
+        image_numpy=((text_image.astype(np.float32))/255).transpose(2,0,1)+images[im].cpu().detach().numpy()
+        images[im]= torch.from_numpy(image_numpy)
