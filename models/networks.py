@@ -187,20 +187,20 @@ class Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
         super(Discriminator, self).__init__()
         layers = []
-        layers=build_encoder_layers(conv_dim,n_layers, max_dim, norm='batch')
+        layers=build_encoder_layers(conv_dim,n_layers, max_dim, normalization='batch')
         self.conv = nn.Sequential(*layers)
 
         feature_size = image_size // 2**n_layers
         out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
         self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
-        self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
+        #self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
 
     def forward(self, x):
         y = self.conv(x)
         y = y.view(y.size()[0], -1)
         logit_adv = self.fc_adv(y)
-        logit_att = self.fc_att(y)
-        return logit_adv, logit_att
+        #logit_att = self.fc_att(y)
+        return logit_adv
 
 
 

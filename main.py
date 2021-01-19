@@ -1,6 +1,6 @@
 import argparse
 
-from agents import STGANAgent
+from agents.faderNet import FaderNet
 from utils.config import *
 
 
@@ -13,7 +13,7 @@ def main():
     args = arg_parser.parse_args()
     args.config = 'configs/train_stgan_mat.yaml'
     config = process_config(args.config)
-    agent = STGANAgent(config)
+    agent = FaderNet(config)
     agent.run()
 
 
