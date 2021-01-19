@@ -15,7 +15,7 @@ def main():
     log_dir = os.path.join(_root_dir, 'logs/logs_1218')
     checkpoint_dir = os.path.join(log_dir, 'model_weights')
     experiment_name = 'OriginalIGN'
-    experiment_version = 'UNet-convdistangle-nogradtrick'
+    experiment_version = 'UNet-convdistangle-nogradtrick-withmaterial'
 
     hparams = argparse.ArgumentParser(add_help=False)
     hparams.add_argument('--log-experiment-path', default=log_dir)

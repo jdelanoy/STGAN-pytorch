@@ -792,16 +792,16 @@ class BranchIGN(pl.LightningModule):
                                         weight_decay=5e-4, nesterov=True)
         else:
             raise ValueError('--optimizer should be one of [sgd, adam]')
-        scheduler = lr_scheduler.StepLR(optimizer, 50000)
-        # scheduler = {
-        #     'scheduler': lr_scheduler.ReduceLROnPlateau(
-        #         optimizer=optimizer,
-        #         patience=5,
-        #         factor=0.1),
-        #     'monitor': 'val_loss',
-        #     'interval': 'epoch',
-        #     'frequency': 1
-        # }
+        # scheduler = lr_scheduler.StepLR(optimizer, 50000)
+        scheduler = {
+            'scheduler': lr_scheduler.ReduceLROnPlateau(
+                optimizer=optimizer,
+                patience=10,
+                factor=0.1),
+            'monitor': 'val_loss',
+            'interval': 'epoch',
+            'frequency': 1
+        }
         return [optimizer], [scheduler]
 
     def compute_consistency_loss(self, all_feat, mode):

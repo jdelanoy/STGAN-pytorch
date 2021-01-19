@@ -175,11 +175,11 @@ class IntrinsicsSplit(torch.autograd.Function):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_ch, ch, act, norm, ign_grad=False):
+    def __init__(self, in_ch, ch, act, norm, ign_grad=False, return_last=False):
         super(Encoder, self).__init__()
         self.ign_grad = ign_grad
         self.split = IntrinsicsSplit()
-
+        self.return_last = return_last
         bias = norm == 'none'  # use bias only if we do not use a norm layer
 
         # build the encoder with 3x3 convs with stride 2 (to reduce resolution by 2)
@@ -189,7 +189,9 @@ class Encoder(nn.Module):
 
         self.encoder = nn.ModuleList(encoder)
 
-    def forward(self, x, mode):
+    def forward(self, x, mode=None):
+        assert self.ign_grad and mode != None or not self.ign_grad
+
         x_encoder = []
         for block in self.encoder:
             x = block(x)
@@ -197,7 +199,10 @@ class Encoder(nn.Module):
             if self.ign_grad: x = self.split.apply((x,), mode)[0]
             x_encoder.insert(0, x)
 
-        return x, x_encoder
+        if self.return_last:
+            return x
+        else:
+            return x, x_encoder
 
 
 class Bottleneck(nn.Module):
@@ -290,13 +295,7 @@ class BranchUNet(nn.Module):
 
     def forward(self, x, mode):
         x_encoder_mater, x_encoder_shape, x_encoder_illum = self.forward_encoder(x, mode)
-        x_mater = x_encoder_mater.pop(-1)
-        x_shape = x_encoder_shape.pop(-1)
-        x_illum = x_encoder_illum.pop(-1)
-
-        x_encoder = [torch.cat((x1, x2), dim=1) for x1, x2 in zip(x_encoder_shape, x_encoder_illum)]
-        x = torch.cat((x_mater, x_shape, x_illum), dim=1)
-
+        x, x_encoder = self.prepare_features(x_encoder_mater, x_encoder_shape, x_encoder_illum)
         x = self.forward_decoder(x, x_encoder)
         return x
 
@@ -322,7 +321,8 @@ class BranchUNet(nn.Module):
         x_shape = x_encoder_shape[-1]
         x_illum = x_encoder_illum[-1]
 
-        x_encoder = [torch.cat((x1, x2), dim=1) for x1, x2 in zip(x_encoder_shape, x_encoder_illum)]
+        x_encoder = [torch.cat((x1, x2, x3), dim=1) for x1, x2, x3 in
+                     zip(x_encoder_mater, x_encoder_shape, x_encoder_illum)]
         x = torch.cat((x_mater, x_shape, x_illum), dim=1)
 
         return x, x_encoder[:-1]
@@ -330,11 +330,11 @@ class BranchUNet(nn.Module):
     def __create_decoder(self, ch, out_ch, act, norm):
         bias = norm == 'none'  # use bias only if we do not use a norm layer
 
-        decoder = [ConvReluBn(conv3x3(ch[-1] * 3 + ch[-1] * 2, ch[-1], bias=bias), act, norm)]
+        decoder = [ConvReluBn(conv3x3(ch[-1] * 3 + ch[-1] * 3, ch[-1], bias=bias), act, norm)]
         for i in range(1, len(ch)):
             ix = len(ch) - i - 1
             decoder.append(
-                ConvReluBn(conv3x3(ch[ix + 1] + ch[ix] * 2, ch[ix], bias=bias), act, norm))
+                ConvReluBn(conv3x3(ch[ix + 1] + ch[ix] * 3, ch[ix], bias=bias), act, norm))
 
         return nn.ModuleList(decoder)
 
@@ -371,12 +371,20 @@ class Autoencoder(UNet):
 
 
 if __name__ == '__main__':
-    img = torch.rand(8, 3, 224, 224).cuda()
-    mode = torch.ones(8, 1).cuda()
+    img = torch.rand(8, 3, 224, 224)
+    mode = torch.ones(8, 1)
+
+    discriminator = nn.Sequential(
+        Encoder(3, [64, 128, 256], 'relu', 'batch', return_last=True),
+        nn.AdaptiveAvgPool2d((1, 1)),
+        nn.Flatten(),
+        nn.Linear(256, 1),
+    )
+    x = discriminator(img)
 
     act = 'leaky_relu'
     norm = 'none'
-    ch = [64, 128, 256]
+    ch = [64, 128, 256, 256]
     model = BranchUNet(in_ch=3, out_ch=3, ch=ch, act=act, norm=norm, ign_grad=False).cuda()
 
     print('in shape', img.shape)
