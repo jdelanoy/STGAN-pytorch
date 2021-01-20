@@ -1,11 +1,12 @@
 import argparse
 import numpy as np
 import cv2
-
+import os
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torchvision.utils as tvutils
+import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from models.networks import FaderNetGenerator, Latent_Discriminator, Discriminator
@@ -21,6 +22,8 @@ class FaderNet(pl.LightningModule):
         # read experiment params
         self.hparams = hparams
         print(hparams)
+        self.sample_dir = os.path.join(hparams.log_experiment_path, hparams.experiment_name,hparams.experiment_version,'samples/')
+        os.makedirs(self.sample_dir,exist_ok=True)
 
         # create model
         self.G = FaderNetGenerator(conv_dim=hparams.g_conv_dim,n_layers=hparams.g_layers,max_dim=hparams.max_conv_dim, skip_connections=hparams.skip_connections, vgg_like=hparams.vgg_like, attr_dim=len(hparams.attrs), n_attr_deconv=hparams.n_attr_deconv)
@@ -67,7 +70,7 @@ class FaderNet(pl.LightningModule):
         # ================================================================================= #
         #                           2. Train the discriminator                              #
         # ================================================================================= #
-        if self.hparams.use_image_disc and optimizer_idx == 1:
+        if self.hparams.use_image_disc and optimizer_idx == 2:
             for _ in range(self.hparams.n_critic):
                 # input is the real image Ia
                 out_disc_real = self.D(Ia)
@@ -98,7 +101,7 @@ class FaderNet(pl.LightningModule):
         # ================================================================================= #
         #                        3. Train the latent discriminator (FaderNet)               #
         # ================================================================================= #
-        if self.hparams.use_latent_disc and optimizer_idx == 2:
+        if self.hparams.use_latent_disc and optimizer_idx == 1:
             # compute disc loss on encoded image
             _,bneck = self.G.encode(Ia)
 
@@ -147,19 +150,26 @@ class FaderNet(pl.LightningModule):
         Ia_sample, _, _, a_sample = batch
         if batch_nb % self.hparams.img_log_iter == 0:
             b_samples = self.create_interpolated_attr(a_sample, self.hparams.attrs)
-            self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.hparams.sample_dir, 'sample_{}.jpg'.format(self.global_step)),writer=True)
+            self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.sample_dir, 'sample_{}.jpg'.format(self.global_step)),writer=True)
 
         loss = {}
         #go through generator
-        encodings,z = self.model.encode(img)
-        img_hat = self.model.decode(mat_attr,z,encodings)
-        self.reconstruction_loss(img, img_hat,loss) 
-        loss['G/loss'] = torch.stack([v for v in loss.values()]).sum()
+        img_hat = self.G(Ia_sample,a_sample)
+        loss['G/loss'] = self.image_reconstruction_loss(Ia_sample, img_hat,loss) 
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
         return loss
 
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure, on_tpu=False, using_native_amp=False, using_lbfgs=False):
+        if optimizer_idx == 0:
+            optimizer.step(closure=optimizer_closure)
+        #optimize latent disc only if activated
+        if self.hparams.use_latent_disc and optimizer_idx == 1:
+            optimizer.step(closure=optimizer_closure)
+        #optimize disc only if activated
+        if self.hparams.use_image_disc and optimizer_idx == 2:
+            optimizer.step(closure=optimizer_closure)
     ################################################################
     ##################### EVAL UTILITIES ###########################
 
@@ -211,11 +221,11 @@ class FaderNet(pl.LightningModule):
         return optim.lr_scheduler.StepLR(optimizer, step_size=self.hparams.lr_decay_iters, gamma=0.1)
     def configure_optimizers(self):
         self.optimizer_G = self.build_optimizer(self.G, self.hparams.g_lr)
-        self.optimizer_D = self.build_optimizer(self.D, self.hparams.d_lr)
         self.optimizer_LD = self.build_optimizer(self.LD, self.hparams.ld_lr)
+        self.optimizer_D = self.build_optimizer(self.D, self.hparams.d_lr)
         self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
-        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.hparams.use_image_disc))
         self.lr_scheduler_LD = self.build_scheduler(self.optimizer_LD, not self.hparams.use_latent_disc)
+        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.hparams.use_image_disc))
         # scheduler = {
         #     'scheduler': lr_scheduler.ReduceLROnPlateau(
         #         optimizer=optimizer,
@@ -225,7 +235,8 @@ class FaderNet(pl.LightningModule):
         #     'interval': 'epoch',
         #     'frequency': 1
         # }
-        return [self.optimizer_G, self.optimizer_D,self.optimizer_LD], [self.lr_scheduler_G,self.lr_scheduler_D,self.lr_scheduler_LD]
+        #TODO put only the right optimizers
+        return [self.optimizer_G,self.optimizer_LD], [self.lr_scheduler_G,self.lr_scheduler_LD]
 
 
 
@@ -313,6 +324,7 @@ class FaderNet(pl.LightningModule):
             parser.add_argument('--g_lr', default=0.0002, type=float)
             parser.add_argument('--d_lr', default=0.0002, type=float)
             parser.add_argument('--ld_lr', default=0.00002, type=float)
+            parser.add_argument('--lr_decay_iters', default=100000, type=int)
             #weights of the losses
             parser.add_argument('--lambda_adv', default=1, type=float)
             parser.add_argument('--lambda_gp', default=10, type=float)
