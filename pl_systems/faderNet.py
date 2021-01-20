@@ -8,8 +8,9 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 from torch.optim import lr_scheduler
 
-from models.networks import FaderNetGenerator, Latent_Discriminator
+from models.networks import FaderNetGenerator, Latent_Discriminator, Discriminator
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
+from utils.im_util import denorm, write_labels_on_images
 
 
 class FaderNet(pl.LightningModule):
@@ -19,12 +20,18 @@ class FaderNet(pl.LightningModule):
 
         # read experiment params
         self.hparams = hparams
+        print(hparams)
 
         # create model
-        self.model = FaderNetGenerator(conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections, vgg_like=0, attr_dim=len(hparams.attrs), n_attr_deconv=1)
-        self.latent_disc=Latent_Discriminator(image_size=hparams.image_size, attr_dim=len(hparams.attrs), conv_dim=hparams.conv_dim,n_layers=hparams.n_layers,max_dim=hparams.max_dim, skip_connections=hparams.skip_connections,fc_dim=1024, vgg_like=0)
-        print(self.model)
-        print(self.latent_disc)
+        self.G = FaderNetGenerator(conv_dim=hparams.g_conv_dim,n_layers=hparams.g_layers,max_dim=hparams.max_conv_dim, skip_connections=hparams.skip_connections, vgg_like=hparams.vgg_like, attr_dim=len(hparams.attrs), n_attr_deconv=hparams.n_attr_deconv)
+        self.D = Discriminator(image_size=hparams.image_size, attr_dim=len(hparams.attrs), conv_dim=hparams.d_conv_dim,n_layers=hparams.d_layers,max_dim=hparams.max_conv_dim,fc_dim=hparams.d_fc_dim)
+        self.LD = Latent_Discriminator(image_size=hparams.image_size, attr_dim=len(hparams.attrs), conv_dim=hparams.g_conv_dim,n_layers=hparams.g_layers,max_dim=hparams.max_conv_dim, fc_dim=hparams.d_fc_dim, skip_connections=hparams.skip_connections, vgg_like=hparams.vgg_like)
+
+        print(self.G)
+        if self.hparams.use_image_disc:
+            print(self.D)
+        if self.hparams.use_latent_disc:
+            print(self.LD)
         # dicts to store the images during train/val steps
         self.last_val_batch = {}
         self.last_val_pred = {}
@@ -49,51 +56,114 @@ class FaderNet(pl.LightningModule):
 
 
     def training_step(self, batch, batch_nb, optimizer_idx):
-        img, _, _, mat_attr = batch
-        loss = {}
-        #go through generator
-        encodings,z = self.model.encode(img)
-        img_hat = self.model.decode(mat_attr,z,encodings)
-        #go through latent disc
-        out_att = self.latent_disc(z)
+        # ================================================================================= #
+        #                            1. Preprocess input data                               #
+        # ================================================================================= #
+        Ia, _, _, a_att = batch
+        # generate target domain labels randomly
+        b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.hparams.gaussian_stddev
 
-        #train generator
+        scalars = {}
+        # ================================================================================= #
+        #                           2. Train the discriminator                              #
+        # ================================================================================= #
+        if self.hparams.use_image_disc and optimizer_idx == 1:
+            for _ in range(self.hparams.n_critic):
+                # input is the real image Ia
+                out_disc_real = self.D(Ia)
+                # fake image Ib_hat
+                Ib_hat = self.G(Ia, b_att)
+                out_disc_fake = self.D(Ib_hat.detach())
+                #adversarial losses
+                d_loss_adv_real = - torch.mean(out_disc_real)
+                d_loss_adv_fake = torch.mean(out_disc_fake)
+                # compute loss for gradient penalty
+                alpha = torch.rand(Ia.size(0), 1, 1, 1)
+                x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                out_disc = self.D(x_hat)
+                d_loss_adv_gp = self.hparams.lambda_gp * self.gradient_penalty(out_disc, x_hat)
+                #full GAN loss
+                d_loss_adv = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
+                d_loss = self.hparams.lambda_adv * d_loss_adv
+                scalars['D/loss_adv'] = d_loss.item()
+                scalars['D/loss_real'] = d_loss_adv_real.item()
+                scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                scalars['D/loss_gp'] = d_loss_adv_gp.item()
+
+                # summarize
+                scalars['D/loss'] = d_loss.item()
+            self.log_dict(scalars, on_step=True, on_epoch=False)
+            return d_loss
+
+        # ================================================================================= #
+        #                        3. Train the latent discriminator (FaderNet)               #
+        # ================================================================================= #
+        if self.hparams.use_latent_disc and optimizer_idx == 2:
+            # compute disc loss on encoded image
+            _,bneck = self.G.encode(Ia)
+
+            for _ in range(self.hparams.n_critic_ld):
+                out_att = self.LD(bneck)
+                #classification loss
+                ld_loss = self.regression_loss(out_att, a_att)*self.hparams.lambda_LD
+                # summarize
+                scalars['LD/loss'] = ld_loss.item()
+            self.log_dict(scalars, on_step=True, on_epoch=False)
+            return ld_loss
+
+        # ================================================================================= #
+        #                              3. Train the generator                               #
+        # ================================================================================= #
         if optimizer_idx == 0:
-            loss['G/loss_latent'] = -self.regression_loss(out_att, mat_attr) * self.hparams.lambda_G_latent
-            self.reconstruction_loss(img, img_hat,loss) 
-            loss['G/loss'] = torch.stack([v for v in loss.values()]).sum()
-            self.log_dict(loss, on_step=True, on_epoch=False)
-            return loss['G/loss']
-        #train latent disc
-        if optimizer_idx == 1:
-            loss['LD/loss_latent'] = self.regression_loss(out_att, mat_attr)*self.hparams.lambda_LD
-            loss['LD/loss'] = torch.stack([v for v in loss.values()]).sum()
-            self.log_dict(loss, on_step=True, on_epoch=False)
-            return loss['LD/loss']
+            encodings,bneck = self.G.encode(Ia)
 
+            Ia_hat=self.G.decode(a_att,bneck,encodings)
+            g_loss_rec = self.hparams.lambda_G_rec * self.image_reconstruction_loss(Ia,Ia_hat,scalars)
+            g_loss = g_loss_rec
+            scalars['G/loss_rec'] = g_loss_rec.item()
+
+            #latent discriminator for attribute in the material part TODO mat part only
+            if self.hparams.use_latent_disc:
+                out_att = self.LD(bneck)
+                g_loss_latent = -self.hparams.lambda_G_latent * self.regression_loss(out_att, a_att)
+                g_loss += g_loss_latent
+                scalars['G/loss_latent'] = g_loss_latent.item()
+
+            if self.hparams.use_image_disc:
+                # original-to-target domain : Ib_hat -> GAN + classif
+                Ib_hat = self.G(Ia, b_att)
+                out_disc = self.D(Ib_hat)
+                # GAN loss
+                g_loss_adv = - self.hparams.lambda_adv * torch.mean(out_disc)
+                g_loss += g_loss_adv
+                scalars['G/loss_adv'] = g_loss_adv.item()
+            # summarize
+            scalars['G/loss'] = g_loss.item()
+
+            self.log_dict(scalars, on_step=True, on_epoch=False)
+            return g_loss
 
     def validation_step(self, batch, batch_nb):
-        img, _, _, mat_attr = batch
+        Ia_sample, _, _, a_sample = batch
+        if batch_nb % self.hparams.img_log_iter == 0:
+            b_samples = self.create_interpolated_attr(a_sample, self.hparams.attrs)
+            self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.hparams.sample_dir, 'sample_{}.jpg'.format(self.global_step)),writer=True)
+
         loss = {}
         #go through generator
         encodings,z = self.model.encode(img)
         img_hat = self.model.decode(mat_attr,z,encodings)
-        #go through latent disc
-        out_att = self.latent_disc(z)
-
         self.reconstruction_loss(img, img_hat,loss) 
         loss['G/loss'] = torch.stack([v for v in loss.values()]).sum()
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 
-        if batch_nb % self.hparams.img_log_iter == 0:
-            #TODO do the attribute interpolation
-            #self.log_img_reconstruction(batch)
-            self.log_img_attr_interpolation(batch)
-
         return loss
 
-    #### do not need to be in FaderNet module
+    ################################################################
+    ##################### EVAL UTILITIES ###########################
+
+
     def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
         c_trg_list = [c_org]
@@ -104,61 +174,48 @@ class FaderNet(pl.LightningModule):
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
                 c_trg_list.append(c_trg)
         return c_trg_list
-    #### do not need to be in FaderNet module
-    def write_labels_on_images(self,images, labels):
-        for im in range(images.shape[0]):
-            text_image=np.zeros((128,128,3), np.uint8)
-            for i in range(labels.shape[1]):
-                cv2.putText(text_image, "%.2f"%(labels[im][i].item()), (10,14*(i+1)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255,255,255,255), 2, 8)
-            image_numpy=((text_image.astype(np.float32))/255).transpose(2,0,1)+images[im].cpu().detach().numpy()
-            images[im]= torch.from_numpy(image_numpy)
 
-    def log_img_attr_interpolation(self, batch):
-        img, _, _, mat_attr = batch
+    def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
+        x_sample = x_sample
+        x_fake_list = [x_sample]
+        for c_trg_sample in c_sample_list:
+            fake_image=self.G(x_sample, c_trg_sample)
+            write_labels_on_images(fake_image,c_trg_sample)
+            x_fake_list.append(fake_image)
+        x_concat = torch.cat(x_fake_list, dim=3)
+        image = tvutils.make_grid(x_concat * 0.5 + 0.5, nrow=1)
+        if writer:
+            self.tb_add_image('sample', image, global_step=self.global_step)
+        if path:
+            tvutils.save_image(image,path,nrow=1, padding=0)
 
-        #interpolated attributes
-        all_attr = self.create_interpolated_attr(mat_attr,self.hparams.attrs)
-        all_recon = []
-        for fake_attr in all_attr:
-            img_hat = self.model(img,fake_attr)
-            self.write_labels_on_images(img_hat, fake_attr)
-            all_recon.append(img_hat)
-
-        all_recon = torch.cat((img, *all_recon), dim=-1)
-        img_log = tvutils.make_grid(all_recon * 0.5 + 0.5, nrow=1)
-        self.tb_add_image('Interpolation img', img_log, global_step=self.global_step)
-
-    def log_img_reconstruction(self, batch):
-        # forward through the model and get loss
-        img, _, _, mat_attr = batch
-        img_hat = self.model(img,mat_attr)
-
-        images=(img,img,img_hat)
-
-        images = torch.cat(images, dim=-1)
-
-        img_log = tvutils.make_grid(images * 0.5 + 0.5, nrow=1)
-        self.tb_add_image('Reconstructed img', img_log, global_step=self.global_step)
 
 
     def forward(self, img, normals, illum, mat_attr):
-        img_hat = self.model(img, mat_attr)
+        img_hat = self.G(img, mat_attr)
         return img_hat
 
     def on_epoch_end(self):
         self.eval()
 
-    def configure_optimizers(self):
+    ################################################################
+    ################### OPTIM UTILITIES ############################
+    def build_optimizer(self,model,lr):
         if self.hparams.optimizer.lower() == 'adam':
-            optimizer1 = torch.optim.Adam(self.model.parameters(),lr=0.0002, betas=(0.9, 0.999))
-            optimizer2 = torch.optim.Adam(self.latent_disc.parameters(),lr=0.00002, betas=(0.9, 0.999))
+            return torch.optim.Adam(model.parameters(), lr, [self.hparams.beta1, self.hparams.beta2])
         elif self.hparams.optimizer.lower() == 'sgd':
-            optimizer1 = torch.optim.SGD(self.model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4, nesterov=True)
-            optimizer2 = torch.optim.SGD(self.latent_disc.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4, nesterov=True)
+            return torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4, nesterov=True)
         else:
             raise ValueError('--optimizer should be one of [sgd, adam]')
-        scheduler1 = lr_scheduler.StepLR(optimizer1, 100000)
-        scheduler2 = lr_scheduler.StepLR(optimizer2, 100000)
+    def build_scheduler(self,optimizer,not_load=False):
+        return optim.lr_scheduler.StepLR(optimizer, step_size=self.hparams.lr_decay_iters, gamma=0.1)
+    def configure_optimizers(self):
+        self.optimizer_G = self.build_optimizer(self.G, self.hparams.g_lr)
+        self.optimizer_D = self.build_optimizer(self.D, self.hparams.d_lr)
+        self.optimizer_LD = self.build_optimizer(self.LD, self.hparams.ld_lr)
+        self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
+        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.hparams.use_image_disc))
+        self.lr_scheduler_LD = self.build_scheduler(self.optimizer_LD, not self.hparams.use_latent_disc)
         # scheduler = {
         #     'scheduler': lr_scheduler.ReduceLROnPlateau(
         #         optimizer=optimizer,
@@ -168,22 +225,51 @@ class FaderNet(pl.LightningModule):
         #     'interval': 'epoch',
         #     'frequency': 1
         # }
-        return [optimizer1, optimizer2], [scheduler1,scheduler2]
+        return [self.optimizer_G, self.optimizer_D,self.optimizer_LD], [self.lr_scheduler_G,self.lr_scheduler_D,self.lr_scheduler_LD]
 
 
 
-    def reconstruction_loss(self,img_hat, img,loss):
-        loss['G/loss_l1'] = F.mse_loss(img_hat, img)*self.hparams.lambda_G_l1
-        if (self.hparams.lambda_G_perc > 0 or self.hparams.lambda_G_style>0):
-            f_img = self.vgg16_f(img)
-            f_img_hat = self.vgg16_f(img_hat)
-            if self.hparams.lambda_G_perc > 0:
-                loss['G/loss_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-            if self.hparams.lambda_G_style > 0:
-                loss['G/loss_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
 
-    def regression_loss(self, logit, target):
+    ################################################################
+    ################### LOSSES UTILITIES ###########################
+    def regression_loss(self, logit, target): #static
         return F.l1_loss(logit,target)/ logit.size(0)
+        #return F.binary_cross_entropy_with_logits(logit, target, reduction='sum') / logit.size(0)
+    def classification_loss(self, logit, target): #static
+        return F.cross_entropy(logit,target) 
+    def image_reconstruction_loss(self, Ia, Ia_hat, scalars):
+        if self.hparams.rec_loss == 'l1':
+            g_loss_rec = F.l1_loss(Ia,Ia_hat)
+        elif self.hparams.rec_loss == 'l2':
+            g_loss_rec = F.mse_loss(Ia,Ia_hat)
+        elif self.hparams.rec_loss == 'perceptual':
+            l1_loss=F.l1_loss(Ia,Ia_hat)
+            scalars['G/loss_rec_l1'] = l1_loss.item()
+            g_loss_rec = l1_loss
+            #add perceptual loss
+            f_img = self.vgg16_f(Ia)
+            f_img_hat = self.vgg16_f(Ia_hat)
+            if self.hparams.lambda_G_perc > 0:
+                scalars['G/loss_rec_perc'] = self.hparams.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+                g_loss_rec += scalars['G/loss_rec_perc']
+            if self.hparams.lambda_G_style > 0:
+                scalars['G/loss_rec_style'] = self.hparams.lambda_G_style * self.loss_S(f_img_hat, f_img)
+                g_loss_rec += scalars['G/loss_rec_style']
+        return g_loss_rec
+
+    def gradient_penalty(self, y, x):
+        """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
+        weight = torch.ones(y.size()).to(self.device)
+        dydx = torch.autograd.grad(outputs=y,
+                                   inputs=x,
+                                   grad_outputs=weight,
+                                   retain_graph=True,
+                                   create_graph=True,
+                                   only_inputs=True)[0]
+
+        dydx = dydx.view(dydx.size(0), -1)
+        dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
+        return torch.mean((dydx_l2norm-1)**2)
 
     @property
     def tb_add_image(self):
@@ -201,21 +287,41 @@ class FaderNet(pl.LightningModule):
 
             # dataset parameters
             parser.add_argument('--num-workers', default=10, type=int)
-            parser.add_argument('--batch-size', default=32, type=int)
 
-            # model cfg parameters
-            parser.add_argument('--conv_dim', default=32, type=int)
-            parser.add_argument('--n_layers', default=6, type=int)
-            parser.add_argument('--max_dim', default=512, type=int)
-            parser.add_argument('--skip-connections', default=0, type=int)
+            # models parameters
+            parser.add_argument('--g_conv_dim', default=32, type=int)
+            parser.add_argument('--d_conv_dim', default=32, type=int)
+            parser.add_argument('--g_layers', default=6, type=int)
+            parser.add_argument('--d_layers', default=5, type=int)
+            parser.add_argument('--d_fc_dim', default=512, type=int)
+            parser.add_argument('--max_conv_dim', default=512, type=int)
+            parser.add_argument('--skip_connections', default=0, type=int)
+            parser.add_argument('--n_attr_deconv', default=1, type=int)#in how many deconv layer add the attribute:0 = no attribute, 1=normal (just concat to bneck)
+            parser.add_argument('--vgg_like', default=0, type=int)
 
+            #which part activate
+            parser.add_argument('--rec_loss', default='l1', type=str)#Can be l1, l2, perceptual
+            parser.add_argument('--use_image_disc', dest='use_image_disc', default=False, action='store_true')
+            parser.add_argument('--use_latent_disc', dest='use_latent_disc', default=False, action='store_true')
             # optimizer parameters
+            parser.add_argument('--batch_size', default=32, type=int)
             parser.add_argument('--optimizer', default='adam', type=str)
-            parser.add_argument('--lambda_G_l1', default=1, type=float)
+            parser.add_argument('--beta1', default=0.9, type=float)
+            parser.add_argument('--beta2', default=0.999, type=float)
+            parser.add_argument('--n_critic', default=1, type=int)
+            parser.add_argument('--n_critic_ld', default=1, type=int)
+            parser.add_argument('--g_lr', default=0.0002, type=float)
+            parser.add_argument('--d_lr', default=0.0002, type=float)
+            parser.add_argument('--ld_lr', default=0.00002, type=float)
+            #weights of the losses
+            parser.add_argument('--lambda_adv', default=1, type=float)
+            parser.add_argument('--lambda_gp', default=10, type=float)
+            parser.add_argument('--lambda_G_rec', default=1, type=float)
             parser.add_argument('--lambda_G_perc', default=0.1, type=float)
             parser.add_argument('--lambda_G_style', default=0.1, type=float)
             parser.add_argument('--lambda_G_latent', default=1, type=float)
             parser.add_argument('--lambda_LD', default=0.01, type=float)
+
             # logging parameters
             parser.add_argument('--img-log-iter', default=500, type=str)
 
