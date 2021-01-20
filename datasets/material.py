@@ -24,7 +24,7 @@ def make_dataset(root, mode, selected_attrs):
     lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train.txt'), 'r')]
     lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test.txt'), 'r')]
     all_attr_names = lines_train[0].split()
-    print(mode,all_attr_names)
+    print(mode,all_attr_names, len(lines_train))
     attr2idx = {}
     idx2attr = {}
     for i, attr_name in enumerate(all_attr_names):
@@ -71,7 +71,7 @@ def make_dataset(root, mode, selected_attrs):
 
         files.append(filename)
         mat_attrs.append(mat_attr)
-        filename_split = filename.split('@')[1].split('.')[0].split('_')
+        filename_split = filename.split('/')[1].split('@')[1].split('.')[0].split('-')
         material.append(filename_split[1])
         geometry.append(filename_split[0])
         illumination.append(filename_split[2])
@@ -169,7 +169,7 @@ class MaterialDataset(data.Dataset):
         self.geoms = np.array(geoms)
         self.illums = np.array(illums)
 
-        self.root = os.path.join(root, '256px_dataset')
+        self.root = root
         self.mode = mode
         self.disentangled=disentangled
         self.transform = transform
@@ -180,15 +180,15 @@ class MaterialDataset(data.Dataset):
         else:
             index = index_and_mode
         
-        filename = os.path.join(self.root, self.files[index])
         mat_attr = self.mat_attrs[index]
         #mat=self.mats[index]
         #geom=self.geoms[index]
         #illum=self.illums[index]
 
-        image = Image.open(filename)
+        image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
+        #read normals and concatenate before applying transforms
         if self.transform is not None:
-            image = self.transform(image)
+            image = self.transform(image) 
         #TODO also load normals/illum and apply the exact same transformation
         normals=image
         illum=image
@@ -233,7 +233,7 @@ class MaterialDataLoader(object):
             transforms.CenterCrop(self.crop_size),
             transforms.Resize(self.image_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) #TODO add channels
         ])
         if self.data_augmentation:
             train_trf = transforms.Compose([
