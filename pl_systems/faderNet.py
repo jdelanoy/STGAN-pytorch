@@ -61,15 +61,15 @@ class FaderNet(pl.LightningModule):
         if optimizer_idx == 0:
             loss['G/loss_latent'] = -self.regression_loss(out_att, mat_attr) * self.hparams.lambda_G_latent
             self.reconstruction_loss(img, img_hat,loss) 
-            loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+            loss['G/loss'] = torch.stack([v for v in loss.values()]).sum()
             self.log_dict(loss, on_step=True, on_epoch=False)
-            return loss
+            return loss['G/loss']
         #train latent disc
         if optimizer_idx == 1:
-            loss['LD/loss'] = self.regression_loss(out_att, mat_attr)*self.hparams.lambda_LD
-            loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+            loss['LD/loss_latent'] = self.regression_loss(out_att, mat_attr)*self.hparams.lambda_LD
+            loss['LD/loss'] = torch.stack([v for v in loss.values()]).sum()
             self.log_dict(loss, on_step=True, on_epoch=False)
-            return loss
+            return loss['LD/loss']
 
 
     def validation_step(self, batch, batch_nb):
@@ -82,7 +82,7 @@ class FaderNet(pl.LightningModule):
         out_att = self.latent_disc(z)
 
         self.reconstruction_loss(img, img_hat,loss) 
-        loss['loss'] = torch.stack([v for v in loss.values()]).sum()
+        loss['G/loss'] = torch.stack([v for v in loss.values()]).sum()
         loss = {'val_%s' % k: v for k, v in loss.items()}
         self.log_dict(loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
 

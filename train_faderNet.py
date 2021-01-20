@@ -28,7 +28,7 @@ def main(hparams):
     trainer = Trainer(
         logger=logger,
         callbacks=[LearningRateMonitor()],
-        checkpoint_callback=ModelCheckpoint(monitor='val_loss', save_last=True),
+        checkpoint_callback=ModelCheckpoint(monitor='val_G/loss', save_last=True),
         gpus=hparams.gpus,
         precision=16,
         progress_bar_refresh_rate=16,
