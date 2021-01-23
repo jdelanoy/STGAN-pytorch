@@ -11,7 +11,7 @@ def main():
         default=None,
         help='The path of configuration file in yaml format')
     args = arg_parser.parse_args()
-    args.config = 'configs/train_stgan_mat.yaml'
+    #args.config = 'configs/train_stgan_mat.yaml'
     config = process_config(args.config)
     agent = FaderNet(config)
     agent.run()
