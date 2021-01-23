@@ -104,7 +104,7 @@ class FaderNet(TrainingModule):
 
     def create_labels(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
-        c_trg_list = [c_org]
+        c_trg_list = [c_org.to(self.device)]
         for i in range(len(selected_attrs)):
             alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
@@ -117,6 +117,7 @@ class FaderNet(TrainingModule):
 
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path,writer=False):
         x_sample = x_sample.to(self.device)
+        c_org_sample = c_org_sample.to(self.device)
         x_fake_list = [x_sample]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample)
@@ -247,8 +248,8 @@ class FaderNet(TrainingModule):
 
     def validating_step(self, batch):
         Ia_sample, _, _, a_sample = batch
-        Ia_sample = Ia_sample.to(self.device)
-        a_sample = a_sample.to(self.device)
+        #Ia_sample = Ia_sample.to(self.device)
+        #a_sample = a_sample.to(self.device)
         b_samples = self.create_labels(a_sample, self.config.attrs)
         self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
 
