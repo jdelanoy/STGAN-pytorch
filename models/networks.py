@@ -6,12 +6,12 @@ import numpy as np
 from models.blocks import * 
 
 
-def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, activation='relu', normalization='batch',dropout=0, vgg_like=0):
+def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',dropout=0, vgg_like=0):
     bias = True #normalization == 'none'  # use bias only if we do not use a normalization layer  #TODO old archi
     kernel_sizes=[4,4,4,4,4,4,4] #[7,5,5,3,3,3,3]  #TODO old archi
     
     layers = []
-    in_channels = 3
+    in_channels = im_channels
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
@@ -29,11 +29,11 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, activation='rel
 
 
 class Encoder(nn.Module):
-    def __init__(self, conv_dim, n_layers, max_dim, vgg_like):
+    def __init__(self, conv_dim, n_layers, max_dim, im_channels, vgg_like):
         super(Encoder, self).__init__()
         act='leaky_relu'
         norm='batch'
-        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim,normalization=norm,activation=act,vgg_like=vgg_like) 
+        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=norm,activation=act,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
 
         self.bottleneck = nn.ModuleList([  #TODO old archi
@@ -55,7 +55,7 @@ class Encoder(nn.Module):
 
 
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch'):
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch'):
     bias=True  #TODO old archi
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
@@ -68,28 +68,28 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, skip_connections=
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
-        if (i==0): dec_out=3 #conv_dim // 4  #TODO old archi
+        if (i==0): dec_out=im_channels #conv_dim // 4  #TODO old archi
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation if i>0 else 'none',normalization=normalization  if i>0 else 'none')] #TODO
         if vgg_like > 0 and i >= n_layers - vgg_like:
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
 
-    last_conv = nn.ConvTranspose2d(conv_dim // 4, 3, 3, 1, 1, bias=True)
+    last_conv = nn.ConvTranspose2d(conv_dim // 4, im_channels, 3, 1, 1, bias=True)
     return decoder, last_conv
 
 
 class Unet(nn.Module):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, skip_connections=2,vgg_like=0):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
         self.up = nn.UpsamplingNearest2d(scale_factor=2) #nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) #TODO old archi
 
         ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like)
         ##### build decoder
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,im_channels, skip_connections=skip_connections,vgg_like=vgg_like)
 
     #return [encodings,bneck]
     def encode(self,x):
@@ -113,7 +113,7 @@ class Unet(nn.Module):
 
 
 class FaderNetGenerator(nn.Module):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1):
         super(FaderNetGenerator, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
@@ -121,9 +121,9 @@ class FaderNetGenerator(nn.Module):
         self.attr_dim = attr_dim
         self.n_attr_deconv = n_attr_deconv
         ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,vgg_like)
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like)
         ##### build decoder
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,im_channels, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
 
     #return [encodings,bneck]
     def encode(self,x):
@@ -165,11 +165,11 @@ def FC_layers(in_dim,fc_dim,out_dim,tanh):
 
 
 class Latent_Discriminator(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, normalization='batch',activation='leaky_relu',dropout=0.3,vgg_like=vgg_like) #TODO act
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization='batch',activation='leaky_relu',dropout=0.3,vgg_like=vgg_like) #TODO act
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
 
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
@@ -183,10 +183,10 @@ class Latent_Discriminator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, attr_dim=10, conv_dim=64, fc_dim=1024, n_layers=5):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3, conv_dim=64, fc_dim=1024, n_layers=5):
         super(Discriminator, self).__init__()
         layers = []
-        layers=build_encoder_layers(conv_dim,n_layers, max_dim, normalization='batch')
+        layers=build_encoder_layers(conv_dim,n_layers, max_dim, im_channels, normalization='batch')
         self.conv = nn.Sequential(*layers)
 
         feature_size = image_size // 2**n_layers

@@ -4,7 +4,6 @@ import datetime
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.utils import make_grid, save_image
 import torchvision.utils as tvutils
 
 from datasets import *
@@ -21,10 +20,9 @@ class FaderNet(TrainingModule):
     def __init__(self, config):
         super(FaderNet, self).__init__(config)
 
-        self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv)
-        self.D = Discriminator(image_size=config.image_size, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim)
-        self.LD = Latent_Discriminator(image_size=config.image_size, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like)
-
+        self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv)
+        self.D = Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim)
+        self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like)
 
         print(self.G)
         if self.config.use_image_disc:
@@ -102,7 +100,7 @@ class FaderNet(TrainingModule):
     ##################### EVAL UTILITIES ###########################
 
 
-    def create_labels(self, c_org, selected_attrs=None,max_val=5.0):
+    def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
         c_trg_list = [c_org]
         for i in range(len(selected_attrs)):
@@ -115,7 +113,7 @@ class FaderNet(TrainingModule):
 
 
 
-    def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path,writer=False):
+    def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
         x_sample = x_sample.to(self.device)
         x_fake_list = [x_sample]
         for c_trg_sample in c_sample_list:
@@ -123,12 +121,11 @@ class FaderNet(TrainingModule):
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
-        image = denorm(x_concat.data.cpu())
+        image = tvutils.make_grid(x_concat * 0.5 + 0.5, nrow=1)
         if writer:
-            self.writer.add_image('sample', make_grid(image, nrow=1),
-                                    self.current_iteration)
-        save_image(image,path,
-                    nrow=1, padding=0)
+            self.writer.add_image('sample', image,self.current_iteration)
+        if path:
+            tvutils.save_image(image,path)
 
 
 
@@ -145,7 +142,7 @@ class FaderNet(TrainingModule):
         # ================================================================================= #
         #                            1. Preprocess input data                               #
         # ================================================================================= #
-        Ia, _, _, a_att = batch
+        Ia, normals, _, a_att = batch
         # generate target domain labels randomly
         b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
@@ -243,21 +240,27 @@ class FaderNet(TrainingModule):
         # summarize
         scalars['G/loss'] = g_loss.item()
 
+
+        # images = torch.cat((Ia,normals), dim=-1)
+        # img_log = tvutils.make_grid(images * 0.5 + 0.5, nrow=1)
+        # tvutils.save_image(img_log,os.path.join(self.config.sample_dir, 'train_{}.png'.format(self.current_iteration)))
+
+
         return scalars
 
     def validating_step(self, batch):
         Ia_sample, _, _, a_sample = batch
         Ia_sample = Ia_sample.to(self.device)
         a_sample = a_sample.to(self.device)
-        b_samples = self.create_labels(a_sample, self.config.attrs)
-        self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.jpg'.format(self.current_iteration)),writer=True)
+        b_samples = self.create_interpolated_attr(a_sample, self.config.attrs)
+        self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
 
 
     def testing_step(self, batch, batch_id):
         i, (x_real, _, _, c_org) = batch_id, batch
-        c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=3.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
-        c_trg_list = self.create_labels(c_org, self.config.attrs,max_val=5.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.jpg'.format(i + 1,self.config.checkpoint)),writer=False)
+        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=3.0)
+        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=5.0)
+        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
 
 

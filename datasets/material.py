@@ -2,21 +2,14 @@ import os
 import math
 import torch
 from torch.utils import data
-from torchvision import transforms
+#from torchvision import transforms as T
+import datasets.transforms as T
 from PIL import Image
 import random
 import numpy as np
+from utils.im_util import get_alpha_channel
 
-
-class RandomResize(object):
-    def __init__(self, low, high, interpolation=Image.BILINEAR):
-        self.low = low
-        self.high = high
-        self.interpolation = interpolation
-
-    def __call__(self, img):
-        size = np.random.randint(self.low, self.high)
-        return transforms.functional.resize(img, size, self.interpolation)
+from matplotlib import pyplot as plt
 
 
 def make_dataset(root, mode, selected_attrs):
@@ -43,7 +36,7 @@ def make_dataset(root, mode, selected_attrs):
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
-        lines = lines_test[:6]+random.sample(lines_train,6) #for full dataset
+        lines = lines_test[:16]+random.sample(lines_train,16+32) #for full dataset
 
         # #only from one shape/one env
         # shape=""
@@ -71,7 +64,7 @@ def make_dataset(root, mode, selected_attrs):
 
         files.append(filename)
         mat_attrs.append(mat_attr)
-        filename_split = filename.split('/')[1].split('@')[1].split('.')[0].split('-')
+        filename_split = filename.split('/')[-1].split('@')[-1].split('.')[0].split('-')
         material.append(filename_split[1])
         geometry.append(filename_split[0])
         illumination.append(filename_split[2])
@@ -186,11 +179,23 @@ class MaterialDataset(data.Dataset):
         #illum=self.illums[index]
 
         image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
-        #read normals and concatenate before applying transforms
+        #read normals if it exists (otherwise, put the image), and the mask
+        try:
+            normals = Image.open(os.path.join(self.root, "normals", self.files[index][:-3]+"png"))
+            mask=get_alpha_channel(normals)
+            #mask = (np.sum(np.array(normals),axis=2)<50).astype(np.uint8)*255
+            #mask = Image.fromarray(mask)
+        except FileNotFoundError:
+            normals=image
+            mask = Image.new('L',normals.size,255)
+            normals.putalpha(mask)
+        image.putalpha(mask)
+
+        #normals.putalpha(mask)
         if self.transform is not None:
-            image = self.transform(image) 
-        #TODO also load normals/illum and apply the exact same transformation
-        normals=image
+            #concatenate everything
+            image,normals = self.transform(image,normals) 
+
         illum=image
 
         if self.disentangled:
@@ -218,7 +223,7 @@ class MaterialDataLoader(object):
         if mode == 'train':
             print("loading data")
             val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf)
-            self.val_loader = data.DataLoader(val_set, batch_size=20, shuffle=False, num_workers=4)
+            self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
             train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf)
@@ -229,19 +234,19 @@ class MaterialDataLoader(object):
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
     def setup_transforms(self):
-        val_trf = transforms.Compose([
-            transforms.CenterCrop(self.crop_size),
-            transforms.Resize(self.image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) #TODO add channels
+        val_trf = T.Compose([
+            T.CenterCrop(self.crop_size),
+            T.Resize(self.image_size),
+            T.ToTensor(),
+            T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1)) #TODO add channels
         ])
         if self.data_augmentation:
-            train_trf = transforms.Compose([
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                transforms.RandomCrop(size=self.crop_size),
-                RandomResize(low=256, high=300),
-                transforms.RandomRotation(degrees=(-5, 5)),
+            train_trf = T.Compose([
+                #T.RandomHorizontalFlip(), #TODO recode for normals
+                #T.RandomVerticalFlip(), #TODO recode for normals
+                T.RandomCrop(size=self.crop_size),
+                T.RandomResize(low=256, high=300),
+                #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
                 val_trf,
             ])
         else:
