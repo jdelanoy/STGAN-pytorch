@@ -40,6 +40,7 @@ class FaderNet(TrainingModule):
             self.config.data_root, self.config.mode, self.config.attrs,
             self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation)
 
+        self.logger.info("FaderNet ready")
 
 
 

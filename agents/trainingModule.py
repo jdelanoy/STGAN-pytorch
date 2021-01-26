@@ -101,7 +101,9 @@ class TrainingModule(object):
                 scalars['G/loss_rec_style'] = self.config.lambda_G_style * self.loss_S(f_img_hat, f_img)
                 g_loss_rec += scalars['G/loss_rec_style']
         return g_loss_rec
-
+    def angular_reconstruction_loss(self, normals, normals_hat):
+        return F.mse_loss(normals,normals_hat) #equivalent when normalized
+        #return 1-F.cosine_similarity(normals,normals_hat)
     def gradient_penalty(self, y, x):
         """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
         weight = torch.ones(y.size()).to(self.device)
