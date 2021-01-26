@@ -123,7 +123,7 @@ class FaderNet(TrainingModule):
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
-        image = tvutils.make_grid(x_concat * 0.5 + 0.5, nrow=1)
+        image = tvutils.make_grid(denorm(x_concat), nrow=1)
         if writer:
             self.writer.add_image('sample', image,self.current_iteration)
         if path:
@@ -244,9 +244,7 @@ class FaderNet(TrainingModule):
         scalars['G/loss'] = g_loss.item()
 
 
-        # images = torch.cat((Ia,normals), dim=-1)
-        # img_log = tvutils.make_grid(images * 0.5 + 0.5, nrow=1)
-        # tvutils.save_image(img_log,os.path.join(self.config.sample_dir, 'train_{}.png'.format(self.current_iteration)))
+
 
 
         return scalars

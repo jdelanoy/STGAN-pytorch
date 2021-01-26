@@ -87,7 +87,7 @@ class NormalUnet(TrainingModule):
 
         x_concat = torch.cat((img[:,:3],normals[:,:3],normals_hat), dim=-1)
 
-        image = tvutils.make_grid(x_concat * 0.5 + 0.5, nrow=1)
+        image = tvutils.make_grid(denorm(x_concat), nrow=1)
         if writer:
             self.writer.add_image('sample', image,self.current_iteration)
         if path:
@@ -108,6 +108,14 @@ class NormalUnet(TrainingModule):
         Ia = Ia.to(self.device)         # input images
         Ia_3ch = Ia[:,:3]
         normals = normals.to(self.device)
+
+        # print(Ia[:,:,0,0])
+        # print(Ia[:,:,64,64])
+        # images = torch.cat((Ia,normals), dim=-1)
+        # print(images.shape)
+        # img_log = tvutils.make_grid(denorm(images), nrow=1)
+        # tvutils.save_image(img_log,os.path.join(self.config.sample_dir, 'train_{}.png'.format(self.current_iteration)))
+        #tvutils.save_image(tvutils.make_grid(Ia[:,3:], nrow=1),os.path.join(self.config.sample_dir, 'train_mask{}.png'.format(self.current_iteration)))
 
         scalars = {}
         # ================================================================================= #

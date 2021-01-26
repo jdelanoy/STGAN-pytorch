@@ -46,8 +46,13 @@ def _imscatter(x, y, image, color=None, ax=None, zoom=1.):
 
 def denorm(x):
     #get from [-1,1] to [0,1]
-    out = (x + 1) / 2
-    return out.clamp_(0, 1)
+    if x.size(1) == 4:
+        norm=transforms.Normalize(mean=(-1,-1,-1,0), std=(2,2,2,1))
+    else:
+        norm=transforms.Normalize(mean=(-1,-1,-1), std=(2,2,2))
+    return norm(x)
+    #out = (x + 1) / 2
+    #return out.clamp_(0, 1)
 
 def write_labels_on_images(images, labels):
     for im in range(images.shape[0]):
