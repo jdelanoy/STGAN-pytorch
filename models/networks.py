@@ -89,7 +89,7 @@ class Unet(nn.Module):
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like)
         ##### build decoder
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,im_channels, skip_connections=skip_connections,vgg_like=vgg_like)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like)
 
     #return [encodings,bneck]
     def encode(self,x):
@@ -123,7 +123,7 @@ class FaderNetGenerator(nn.Module):
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like)
         ##### build decoder
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,im_channels, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv)
 
     #return [encodings,bneck]
     def encode(self,x):

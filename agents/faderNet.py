@@ -21,7 +21,7 @@ class FaderNet(TrainingModule):
         super(FaderNet, self).__init__(config)
 
         self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv)
-        self.D = Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim)
+        self.D = Discriminator(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim)
         self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like)
 
         print(self.G)
@@ -116,7 +116,7 @@ class FaderNet(TrainingModule):
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
-        x_fake_list = [x_sample]
+        x_fake_list = [x_sample[:,:3]]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample)
             write_labels_on_images(fake_image,c_trg_sample)
@@ -148,6 +148,7 @@ class FaderNet(TrainingModule):
         b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
         Ia = Ia.to(self.device)         # input images
+        Ia_3ch = Ia[:,:3]
         a_att = a_att.to(self.device)   # attribute of image
         b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
 
@@ -161,7 +162,7 @@ class FaderNet(TrainingModule):
 
             for _ in range(self.config.n_critic):
                 # input is the real image Ia
-                out_disc_real = self.D(Ia)
+                out_disc_real = self.D(Ia_3ch)
                 # fake image Ib_hat
                 Ib_hat = self.G(Ia, b_att)
                 out_disc_fake = self.D(Ib_hat.detach())
@@ -170,7 +171,7 @@ class FaderNet(TrainingModule):
                 d_loss_adv_fake = torch.mean(out_disc_fake)
                 # compute loss for gradient penalty
                 alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-                x_hat = (alpha * Ia.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+                x_hat = (alpha * Ia_3ch.data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
                 out_disc = self.D(x_hat)
                 d_loss_adv_gp = self.config.lambda_gp * self.gradient_penalty(out_disc, x_hat)
                 #full GAN loss
@@ -216,7 +217,7 @@ class FaderNet(TrainingModule):
         encodings,bneck = self.G.encode(Ia)
 
         Ia_hat=self.G.decode(a_att,bneck,encodings)
-        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(Ia,Ia_hat,scalars)
+        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(Ia_3ch,Ia_hat,scalars)
         g_loss = g_loss_rec
         scalars['G/loss_rec'] = g_loss_rec.item()
 
