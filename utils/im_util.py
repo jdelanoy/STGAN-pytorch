@@ -9,6 +9,7 @@ import cv2
 import torch
 from PIL import Image
 import operator, itertools
+from utils.batch_transforms import Normalize
 
 
 
@@ -47,9 +48,9 @@ def _imscatter(x, y, image, color=None, ax=None, zoom=1.):
 def denorm(x):
     #get from [-1,1] to [0,1]
     if x.size(1) == 4:
-        norm=transforms.Normalize(mean=(-1,-1,-1,0), std=(2,2,2,1))
+        norm=Normalize(mean=(-1,-1,-1,0), std=(2,2,2,1))
     else:
-        norm=transforms.Normalize(mean=(-1,-1,-1), std=(2,2,2))
+        norm=Normalize(mean=(-1,-1,-1), std=(2,2,2))
     return norm(x)
     #out = (x + 1) / 2
     #return out.clamp_(0, 1)
