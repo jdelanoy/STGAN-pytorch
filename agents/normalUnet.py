@@ -161,7 +161,7 @@ class NormalUnet(TrainingModule):
         self.D.eval()
 
         normals_hat = self.G(Ia)
-        g_loss_rec = self.config.lambda_G_rec * self.angular_reconstruction_loss(normals[:,:3],normals_hat)
+        g_loss_rec = self.config.lambda_G_rec * self.angular_reconstruction_loss(normals[:,:],normals_hat)
         g_loss = g_loss_rec
         scalars['G/loss_rec'] = g_loss_rec.item()
 
