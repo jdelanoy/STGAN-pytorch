@@ -36,10 +36,10 @@ class Encoder(nn.Module):
         bias = norm == 'none'  # use bias only if we do not use a normalization layer 
         enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=norm,activation=act,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
-
+        b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.bottleneck = nn.ModuleList([  #TODO old archi
-            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
-            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            BottleneckBlock(b_dim, b_dim, act, norm, bias=bias),
+            BottleneckBlock(b_dim, b_dim, act, norm, bias=bias),
         ])
     #return [encodings,bneck]
     def encode(self,x):
@@ -105,6 +105,7 @@ class Unet(nn.Module):
             out = dec_layer(self.up(out))
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
+        x = x / torch.sqrt((x**2).sum(dim=1,keepdims=True))
         return x
 
     def forward(self, x):
@@ -146,6 +147,7 @@ class FaderNetGenerator(nn.Module):
             out = dec_layer(self.up(out))
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
+
         return x
 
     def forward(self, x,a):
