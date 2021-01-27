@@ -83,7 +83,7 @@ class NormalUnet(TrainingModule):
     def log_img_reconstruction(self,img,normals,path=None,writer=False):
         img=img.to(self.device)
         normals=normals.to(self.device)
-        normals_hat = self.G(img)
+        normals_hat = self.G(img)*normals[:,3]
 
         x_concat = torch.cat((img[:,:3],normals[:,:3],normals_hat), dim=-1)
 
