@@ -37,7 +37,7 @@ class Normalize:
 
     """
 
-    def __init__(self, mean, std, inplace=False, dtype=torch.float, device='cpu'):
+    def __init__(self, mean, std, inplace=False, dtype=torch.float, device='cuda'):
         self.mean = torch.as_tensor(mean, dtype=dtype, device=device)[None, :, None, None]
         self.std = torch.as_tensor(std, dtype=dtype, device=device)[None, :, None, None]
         self.inplace = inplace

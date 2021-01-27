@@ -7,7 +7,7 @@ from models.blocks import *
 
 
 def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',dropout=0, vgg_like=0):
-    bias = True #normalization == 'none'  # use bias only if we do not use a normalization layer  #TODO old archi
+    bias = normalization == 'none'  # use bias only if we do not use a normalization layer  #TODO old archi
     kernel_sizes=[4,4,4,4,4,4,4] #[7,5,5,3,3,3,3]  #TODO old archi
     
     layers = []
@@ -15,7 +15,7 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization  if i>0 else 'none')] #TODO
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #TODO
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
@@ -33,12 +33,13 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         act='leaky_relu'
         norm='batch'
+        bias = norm == 'none'  # use bias only if we do not use a normalization layer 
         enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=norm,activation=act,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
 
         self.bottleneck = nn.ModuleList([  #TODO old archi
-            #BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
-            #BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
+            BottleneckBlock(max_dim, max_dim, act, norm, bias=bias),
         ])
     #return [encodings,bneck]
     def encode(self,x):
@@ -56,7 +57,7 @@ class Encoder(nn.Module):
 
 
 def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch'):
-    bias=True  #TODO old archi
+    bias=normalization=='none'  #TODO old archi
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
         #size of inputs/outputs
@@ -68,9 +69,9 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
-        if (i==0): dec_out=im_channels #conv_dim // 4  #TODO old archi
+        if (i==0): dec_out=conv_dim // 4  #TODO old archi
 
-        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation if i>0 else 'none',normalization=normalization  if i>0 else 'none')] #TODO
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if vgg_like > 0 and i >= n_layers - vgg_like:
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
@@ -102,7 +103,7 @@ class Unet(nn.Module):
             if 0 < i <= self.skip_connections:
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
-        x = out#self.last_conv(out) #TODO old archi
+        x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
         return x
 
@@ -143,7 +144,7 @@ class FaderNetGenerator(nn.Module):
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out = dec_layer(self.up(out))
-        x = out#self.last_conv(out) #TODO old archi
+        x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
         return x
 
