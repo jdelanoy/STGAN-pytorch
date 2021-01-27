@@ -123,7 +123,7 @@ class FaderNetWithNormals(TrainingModule):
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
-        normals=self.normal_G(x_sample)
+        normals=self.get_normals(x_sample)
         x_fake_list = [x_sample[:,:3],normals]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample,normals)
@@ -136,7 +136,9 @@ class FaderNetWithNormals(TrainingModule):
         if path:
             tvutils.save_image(image,path)
 
-
+    def get_normals(self, img):
+        normals=self.normal_G(img)
+        return normals*img[:,3:]
 
 
 
@@ -159,6 +161,7 @@ class FaderNetWithNormals(TrainingModule):
         Ia_3ch = Ia[:,:3]
         a_att = a_att.to(self.device)   # attribute of image
         b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
+        normals_hat=self.get_normals(Ia)
 
         scalars = {}
         # ================================================================================= #
@@ -172,7 +175,7 @@ class FaderNetWithNormals(TrainingModule):
                 # input is the real image Ia
                 out_disc_real = self.D(Ia_3ch)
                 # fake image Ib_hat
-                Ib_hat = self.G(Ia, b_att, self.normal_G(Ia))
+                Ib_hat = self.G(Ia, b_att, normals_hat)
                 out_disc_fake = self.D(Ib_hat.detach())
                 #adversarial losses
                 d_loss_adv_real = - torch.mean(out_disc_real)
@@ -224,7 +227,7 @@ class FaderNetWithNormals(TrainingModule):
 
         encodings,bneck = self.G.encode(Ia)
 
-        Ia_hat=self.G.decode(a_att,bneck, self.normal_G(Ia),encodings)
+        Ia_hat=self.G.decode(a_att,bneck, normals_hat,encodings)
         g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(Ia_3ch,Ia_hat,scalars)
         g_loss = g_loss_rec
         scalars['G/loss_rec'] = g_loss_rec.item()
@@ -238,7 +241,7 @@ class FaderNetWithNormals(TrainingModule):
 
         if self.config.use_image_disc:
             # original-to-target domain : Ib_hat -> GAN + classif
-            Ib_hat = self.G(Ia, b_att, self.normal_G(Ia))
+            Ib_hat = self.G(Ia, b_att, normals_hat)
             out_disc = self.D(Ib_hat)
             # GAN loss
             g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
