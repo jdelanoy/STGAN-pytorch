@@ -123,9 +123,10 @@ class FaderNetWithNormals(TrainingModule):
     def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
-        x_fake_list = [x_sample[:,:3]]
+        normals=self.normal_G(x_sample)
+        x_fake_list = [x_sample[:,:3],normals]
         for c_trg_sample in c_sample_list:
-            fake_image=self.G(x_sample, c_trg_sample,self.normal_G(x_sample))
+            fake_image=self.G(x_sample, c_trg_sample,normals)
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
