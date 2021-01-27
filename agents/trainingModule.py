@@ -61,6 +61,11 @@ class TrainingModule(object):
         model.to(self.device)
         if optimizer != None:
             optimizer.load_state_dict(checkpoint['optimizer'])
+    def load_model_from_path(self,model,path):
+        checkpoint = torch.load(path,map_location=self.device)
+        to_load = {k.replace('module.', ''): v for k, v in checkpoint['state_dict'].items()}
+        model.load_state_dict(to_load)
+        model.to(self.device)
 
     ################################################################
     ################### OPTIM UTILITIES ############################
@@ -141,7 +146,7 @@ class TrainingModule(object):
 
     def train(self):
         self.setup_all_optimizers()
-        self.writer.add_hparams(dict(self.config),{})
+        self.writer.add_hparams(dict(self.config),{"dumb_val":0})
 
         # samples used for testing the net
         val_iter = iter(self.data_loader.val_loader)
