@@ -30,9 +30,9 @@ def make_dataset(root, mode, selected_attrs):
     lines_test=lines_test[1:]
     #lines_train = lines_train[1:]
     if mode == 'train':
-        lines = lines_train[:100]
+        lines = lines_train
     if mode == 'val': #put in first half a batch of test images, half of training images
-        lines = random.sample(lines_test,1)#+random.sample(lines_train,16)
+        lines = random.sample(lines_test,16)+random.sample(lines_train,16)
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
