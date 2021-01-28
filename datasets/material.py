@@ -178,7 +178,7 @@ class MaterialDataset(data.Dataset):
         #geom=self.geoms[index]
         #illum=self.illums[index]
 
-        #image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
+        ##### OpenCV version
         image_rgb = cv2.cvtColor(cv2.imread(os.path.join(self.root, "renderings", self.files[index]), 1), cv2.COLOR_BGR2RGB)
         size=image_rgb.shape[0]
         #read normals if it exists (otherwise, put the image), and the mask
@@ -186,18 +186,15 @@ class MaterialDataset(data.Dataset):
         if (type(normals_bgra) is np.ndarray):
             normals = np.ndarray((size,size,4), dtype=np.uint8)
             cv2.mixChannels([normals_bgra], [normals], [0,2, 1,1, 2,0, 3,3])
-            #mask=normals[:,:,3:]
-            #normals = cv2.cvtColor(normals[:,:,:3], cv2.COLOR_BGR2RGB)
-            #normals = np.concatenate((normals,mask),2)
         else:
             mask=np.ones((size,size,1),np.uint8)*255
             normals = np.ndarray((size,size,4), dtype=np.uint8)
             cv2.mixChannels([image_rgb,mask], [normals], [0,0, 1,1, 2,2, 3,3])
-            # normals=image
-            # normals = np.concatenate((normals,mask),2)
-        #image = np.concatenate((image,mask),2)
         image = np.ndarray(normals.shape, dtype=np.uint8)
         cv2.mixChannels([image_rgb,normals], [image], [0,0, 1,1, 2,2, 6,3])
+
+        ##### PIL version: faster but apply the alpha channel when resizing
+        #image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
         # try:
         #     normals = Image.open(os.path.join(self.root, "normals", self.files[index][:-3]+"png"))
         #     mask=get_alpha_channel(normals)
@@ -206,9 +203,7 @@ class MaterialDataset(data.Dataset):
         #     normals=image
         #     mask = Image.new('L',normals.size,255)
         #     normals.putalpha(mask)
-        # #print(self.files[index],"before",np.array(image)[0,0,:])
         # image.putalpha(mask)
-        # print(self.files[index],"after",np.array(image)[0,0,:])
 
         #normals.putalpha(mask)
         if self.transform is not None:
