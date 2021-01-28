@@ -120,10 +120,13 @@ class FaderNetWithNormals(TrainingModule):
 
 
 
-    def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
+    def compute_sample_grid(self,batch,max_val,path=None,writer=False):
+        x_sample, normals, _, c_org_sample = batch
+        c_sample_list = self.create_interpolated_attr(c_org_sample, self.config.attrs,max_val=max_val)
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
-        normals=self.get_normals(x_sample)
+        normals=normals[:,:3].to(self.device) #self.get_normals(x_sample)
+
         x_fake_list = [x_sample[:,:3],normals]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample,normals)
@@ -161,7 +164,7 @@ class FaderNetWithNormals(TrainingModule):
         Ia_3ch = Ia[:,:3]
         a_att = a_att.to(self.device)   # attribute of image
         b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
-        normals_hat=self.get_normals(Ia)
+        normals_hat=normals[:,:3].to(self.device) #self.get_normals(Ia)
 
         scalars = {}
         # ================================================================================= #
@@ -260,18 +263,11 @@ class FaderNetWithNormals(TrainingModule):
         return scalars
 
     def validating_step(self, batch):
-        Ia_sample, _, _, a_sample = batch
-        #Ia_sample = Ia_sample.to(self.device)
-        #a_sample = a_sample.to(self.device)
-        b_samples = self.create_interpolated_attr(a_sample, self.config.attrs)
-        self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
+        self.compute_sample_grid(batch,5.0,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
 
 
     def testing_step(self, batch, batch_id):
-        i, (x_real, _, _, c_org) = batch_id, batch
-        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=3.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
-        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=5.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
 
 
