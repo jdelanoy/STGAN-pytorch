@@ -36,7 +36,7 @@ def make_dataset(root, mode, selected_attrs):
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
-        lines = lines_test[:16]+random.sample(lines_train,16+32) #for full dataset
+        lines = lines_test[:32*2]+random.sample(lines_train,32*4) #for full dataset
 
         # #only from one shape/one env
         # shape=""
