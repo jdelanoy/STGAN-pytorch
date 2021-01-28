@@ -3,18 +3,21 @@ from PIL import Image
 import random
 
 import torch
-from torchvision import transforms as T
-from torchvision.transforms import functional as F
+#from torchvision import transforms as T
+#from torchvision.transforms import functional as F
+from opencv_transforms import functional as F
+from opencv_transforms import transforms as T
 
 
-def pad_if_smaller(img, size, fill=0):
-    min_size = min(img.size)
-    if min_size < size:
-        ow, oh = img.size
-        padh = size - oh if oh < size else 0
-        padw = size - ow if ow < size else 0
-        img = F.pad(img, (0, 0, padw, padh), fill=fill)
-    return img
+
+# def pad_if_smaller(img, size, fill=0):
+#     min_size = min(img.size)
+#     if min_size < size:
+#         ow, oh = img.size
+#         padh = size - oh if oh < size else 0
+#         padw = size - ow if ow < size else 0
+#         img = F.pad(img, (0, 0, padw, padh), fill=fill)
+#     return img
 
 class Compose(object):
     def __init__(self, transforms):
@@ -37,7 +40,7 @@ class CenterCrop(object):
 
 class Resize(object): 
     def __init__(self, size, interpolation=Image.BILINEAR):
-        self.size = size
+        self.size = (size,size) #TODO according to what is size
         self.interpolation = interpolation
 
     def __call__(self, image, normals): #TODO warning for mask -> nearest interpolation?
@@ -92,8 +95,8 @@ class RandomCrop(object):
         self.size = size
 
     def __call__(self, image, normals):
-        image = pad_if_smaller(image, self.size)
-        normals = pad_if_smaller(normals, self.size)
+        #image = pad_if_smaller(image, self.size)
+        #normals = pad_if_smaller(normals, self.size)
         crop_params = T.RandomCrop.get_params(image, (self.size, self.size))
         image = F.crop(image, *crop_params)
         normals = F.crop(normals, *crop_params)
@@ -109,8 +112,8 @@ class RandomResize(object):
 
     def __call__(self, image, normals): #TODO warning for mask -> nearest interpolation?
         size = np.random.randint(self.low, self.high)
-        image = F.resize(image, size, self.interpolation)
-        normals = F.resize(normals, size, self.interpolation)
+        image = F.resize(image, (size,size), self.interpolation)
+        normals = F.resize(normals, (size,size), self.interpolation)
         return image, normals
 
 class RandomRotation(object):
