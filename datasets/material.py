@@ -8,7 +8,7 @@ from PIL import Image
 import random
 import numpy as np
 from utils.im_util import get_alpha_channel
-
+import cv2
 from matplotlib import pyplot as plt
 
 
@@ -30,9 +30,9 @@ def make_dataset(root, mode, selected_attrs):
     lines_test=lines_test[1:]
     #lines_train = lines_train[1:]
     if mode == 'train':
-        lines = lines_train
+        lines = lines_train[:100]
     if mode == 'val': #put in first half a batch of test images, half of training images
-        lines = random.sample(lines_test,16)+random.sample(lines_train,16)
+        lines = random.sample(lines_test,1)#+random.sample(lines_train,16)
     if mode == 'test':
         np.random.shuffle(lines_test)
         #lines = lines_test+random.sample(lines_train,16) #for spheres
@@ -178,23 +178,36 @@ class MaterialDataset(data.Dataset):
         #geom=self.geoms[index]
         #illum=self.illums[index]
 
-        image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
+        #image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
+        image = cv2.cvtColor(cv2.imread(os.path.join(self.root, "renderings", self.files[index]), 1), cv2.COLOR_BGR2RGB)
         #read normals if it exists (otherwise, put the image), and the mask
-        try:
-            normals = Image.open(os.path.join(self.root, "normals", self.files[index][:-3]+"png"))
-            mask=get_alpha_channel(normals)
-            #mask = (np.sum(np.array(normals),axis=2)<50).astype(np.uint8)*255
-            #mask = Image.fromarray(mask)
-        except FileNotFoundError:
+        normals = cv2.imread(os.path.join(self.root, "normals", self.files[index][:-3]+"png"), -1)
+        if (type(normals) is np.ndarray):
+            mask=normals[:,:,3:]
+            normals = cv2.cvtColor(normals[:,:,:3], cv2.COLOR_BGR2RGB)
+            normals = np.concatenate((normals,mask),2)
+        else:
             normals=image
-            mask = Image.new('L',normals.size,255)
-            normals.putalpha(mask)
-        image.putalpha(mask)
+            mask=np.ones((normals.shape[0],normals.shape[1],1),np.uint8)*255
+            normals = np.concatenate((normals,mask),2)
+        image = np.concatenate((image,mask),2)
+        # try:
+        #     normals = Image.open(os.path.join(self.root, "normals", self.files[index][:-3]+"png"))
+        #     mask=get_alpha_channel(normals)
+        # except FileNotFoundError:
+        #     #put the original image in place of the normals + full mask
+        #     normals=image
+        #     mask = Image.new('L',normals.size,255)
+        #     normals.putalpha(mask)
+        # #print(self.files[index],"before",np.array(image)[0,0,:])
+        # image.putalpha(mask)
+        # print(self.files[index],"after",np.array(image)[0,0,:])
 
         #normals.putalpha(mask)
         if self.transform is not None:
             #concatenate everything
             image,normals = self.transform(image,normals) 
+        #print(self.files[index],"after trans",np.array(image)[:,0,0])
 
         illum=image
 
@@ -238,7 +251,7 @@ class MaterialDataLoader(object):
             T.CenterCrop(self.crop_size),
             T.Resize(self.image_size),
             T.ToTensor(),
-            T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1)) #TODO add channels
+            T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
         ])
         if self.data_augmentation:
             train_trf = T.Compose([
