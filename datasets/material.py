@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
     lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train.txt'), 'r')]
-    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test.txt'), 'r')]
+    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full.txt'), 'r')]
     all_attr_names = lines_train[0].split()
     print(mode,all_attr_names, len(lines_train))
     attr2idx = {}
@@ -34,9 +34,8 @@ def make_dataset(root, mode, selected_attrs):
     if mode == 'val': #put in first half a batch of test images, half of training images
         lines = random.sample(lines_test,16)+random.sample(lines_train,16)
     if mode == 'test':
-        np.random.shuffle(lines_test)
-        #lines = lines_test+random.sample(lines_train,16) #for spheres
-        lines = lines_test[:32*2]+random.sample(lines_train,32*4) #for full dataset
+        #np.random.shuffle(lines_test)
+        lines = lines_test #[:32*2]+random.sample(lines_train,32*4) #for full dataset
 
         # #only from one shape/one env
         # shape=""
@@ -65,9 +64,9 @@ def make_dataset(root, mode, selected_attrs):
         files.append(filename)
         mat_attrs.append(mat_attr)
         filename_split = filename.split('/')[-1].split('@')[-1].split('.')[0].split('-')
-        material.append(filename_split[1])
-        geometry.append(filename_split[0])
-        illumination.append(filename_split[2])
+        # material.append(filename_split[1])
+        # geometry.append(filename_split[0])
+        # illumination.append(filename_split[2])
 
     return {'files': files,
             'mat_attrs': mat_attrs,
@@ -154,13 +153,13 @@ class MaterialDataset(data.Dataset):
         self.files = items['files']
         self.mat_attrs = items['mat_attrs']
 
-        mats, self.idx2mats, self.mats2idxs = list2idxs(items['materials'])
-        geoms, self.idx2geoms, self.geoms2idx = list2idxs(items['geometries'])
-        illums, self.idx2illums, self.illums2idx = list2idxs(items['illuminations'])
+        # mats, self.idx2mats, self.mats2idxs = list2idxs(items['materials'])
+        # geoms, self.idx2geoms, self.geoms2idx = list2idxs(items['geometries'])
+        # illums, self.idx2illums, self.illums2idx = list2idxs(items['illuminations'])
 
-        self.mats = np.array(mats)
-        self.geoms = np.array(geoms)
-        self.illums = np.array(illums)
+        # self.mats = np.array(mats)
+        # self.geoms = np.array(geoms)
+        # self.illums = np.array(illums)
 
         self.root = root
         self.mode = mode
@@ -209,8 +208,10 @@ class MaterialDataset(data.Dataset):
         if self.transform is not None:
             #concatenate everything
             image,normals = self.transform(image,normals) 
-        #print(self.files[index],"after trans",np.array(image)[:,0,0])
 
+        image = image*image[3:]
+        normals = normals*normals[3:]
+        
         illum=image
 
         if self.disentangled:
