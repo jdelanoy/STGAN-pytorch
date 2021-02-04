@@ -56,7 +56,7 @@ class Encoder(nn.Module):
 
 
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=False):
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=0):
     bias=normalization=='none'  #TODO old archi
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
@@ -69,9 +69,8 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - n_attr_deconv: dec_in = dec_in + attr_dim #concatenate attribute
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
-        if (i==0): 
-            dec_out=conv_dim // 4 
-            dec_in += (3 if add_normal_map else 0)
+        if (i==0): dec_out=conv_dim // 4 
+        if (i < add_normal_map): dec_in += 3
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):
@@ -154,10 +153,15 @@ class FaderNetGeneratorWithNormals(Unet):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like)
         self.attr_dim = attr_dim
         self.n_attr_deconv = n_attr_deconv
+        self.n_concat_normals = 4
         ##### change decoder : get attribute as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=True)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals)
 
     def decode(self, a, bneck, normals, encodings):
+        #build pyramid of normals (should be directly provided in future version)
+        normal_pyramid=[normals]
+        for i in range(self.n_concat_normals-1):
+            normal_pyramid.insert(0,nn.functional.interpolate(normal_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
         #expand dimensions of a
         a = a.view((bneck.size(0), self.attr_dim, 1, 1))
         out=bneck
@@ -170,9 +174,9 @@ class FaderNetGeneratorWithNormals(Unet):
             if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
-            if i == len(self.decoder)-1:
+            if i >= self.n_layers-self.n_concat_normals:
                 #add normal map to the last deconv
-                out = dec_layer(torch.cat([self.up(out), normals], dim=1))
+                out = dec_layer(torch.cat([self.up(out), normal_pyramid[i-(self.n_layers-self.n_concat_normals)]], dim=1))
             else:
                 out = dec_layer(self.up(out))
         x = self.last_conv(out) #TODO old archi
