@@ -38,7 +38,7 @@ class FaderNet(TrainingModule):
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
-            self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation)
+            self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation, mask_input_bg=config.mask_input_bg)
 
         self.logger.info("FaderNet ready")
 

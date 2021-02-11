@@ -147,7 +147,7 @@ def list2idxs(l):
 
 
 class MaterialDataset(data.Dataset):
-    def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None):
+    def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None, mask_input_bg=True):
         items = make_dataset(root, mode, selected_attrs)
 
         self.files = items['files']
@@ -165,6 +165,7 @@ class MaterialDataset(data.Dataset):
         self.mode = mode
         self.disentangled=disentangled
         self.transform = transform
+        self.mask_input_bg = mask_input_bg
 
     def __getitem__(self, index_and_mode):
         if self.disentangled:
@@ -208,9 +209,10 @@ class MaterialDataset(data.Dataset):
         if self.transform is not None:
             #concatenate everything
             image,normals = self.transform(image,normals) 
-
-        image = image*image[3:]
-        normals = normals*normals[3:]
+        
+        if mask_input_bg:
+            image = image*image[3:]
+            normals = normals*normals[3:]
         
         illum=image
 
@@ -225,7 +227,7 @@ class MaterialDataset(data.Dataset):
 
 
 class MaterialDataLoader(object):
-    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False):
+    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False, mask_input_bg=True):
         if mode not in ['train', 'test']:
             return
 
@@ -238,15 +240,15 @@ class MaterialDataLoader(object):
         train_trf, val_trf = self.setup_transforms()
         if mode == 'train':
             print("loading data")
-            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf)
+            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg)
             self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
-            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf)
+            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf, mask_input_bg=mask_input_bg)
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
-            test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf)
+            test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg)
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
     def setup_transforms(self):
