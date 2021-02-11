@@ -37,9 +37,9 @@ class FaderNetWithNormals(TrainingModule):
             print(self.LD)
 
          # create all the loss functions that we may need for perceptual loss
-        self.loss_P = PerceptualLoss()
-        self.loss_S = StyleLoss()
-        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4'])
+        self.loss_P = PerceptualLoss().to(self.device)
+        self.loss_S = StyleLoss().to(self.device)
+        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4']).to(self.device)
 
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
@@ -127,9 +127,9 @@ class FaderNetWithNormals(TrainingModule):
         c_org_sample = c_org_sample.to(self.device)
         normals=normals[:,:3].to(self.device) #self.get_normals(x_sample)
 
-        x_fake_list = [x_sample[:,:3],normals]
+        x_fake_list = [normals,x_sample[:,:3]]
         for c_trg_sample in c_sample_list:
-            fake_image=self.G(x_sample, c_trg_sample,normals)
+            fake_image=self.G(x_sample, c_trg_sample,normals)*x_sample[:,3:]
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
@@ -162,6 +162,7 @@ class FaderNetWithNormals(TrainingModule):
 
         Ia = Ia.to(self.device)         # input images
         Ia_3ch = Ia[:,:3]
+        mask = Ia[:,3:]
         a_att = a_att.to(self.device)   # attribute of image
         b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
         normals_hat=normals[:,:3].to(self.device) #self.get_normals(Ia)

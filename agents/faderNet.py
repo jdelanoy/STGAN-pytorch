@@ -119,7 +119,7 @@ class FaderNet(TrainingModule):
         c_org_sample = c_org_sample.to(self.device)
         x_fake_list = [x_sample[:,:3]]
         for c_trg_sample in c_sample_list:
-            fake_image=self.G(x_sample, c_trg_sample)#*x_sample[:,3:]
+            fake_image=self.G(x_sample, c_trg_sample)*x_sample[:,3:]
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
