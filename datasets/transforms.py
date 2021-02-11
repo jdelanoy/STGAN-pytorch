@@ -119,11 +119,15 @@ class RandomResize(object):
 class RandomRotation(object):
     def __init__(self, degrees, resample=False, expand=False, center=None, fill=None):
         self.degrees = degrees
+        self.expand = expand
+        self.resample = resample
+        self.center = center
+        self.fill = fill
 
     def __call__(self, image, normals): #TODO warning for mask -> nearest interpolation?
         angle = T.RandomRotation.get_params(self.degrees)
-        image =  F.rotate(image, angle, self.resample, self.expand, self.center, self.fill)
-        normals =  F.rotate(normals, angle, self.resample, self.expand, self.center, self.fill) 
+        image =  F.rotate(image, angle, self.resample, self.expand, self.center)
+        normals =  F.rotate(normals, angle, self.resample, self.expand, self.center ) 
         #TODO change normals
         return image, normals
 
