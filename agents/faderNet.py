@@ -31,9 +31,9 @@ class FaderNet(TrainingModule):
             print(self.LD)
 
          # create all the loss functions that we may need for perceptual loss
-        self.loss_P = PerceptualLoss()
-        self.loss_S = StyleLoss()
-        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4'])
+        self.loss_P = PerceptualLoss().to(self.device)
+        self.loss_S = StyleLoss().to(self.device)
+        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4']).to(self.device)
 
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
@@ -105,6 +105,7 @@ class FaderNet(TrainingModule):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
         c_trg_list = [c_org.to(self.device)]
         for i in range(len(selected_attrs)):
+            alphas = [-max_val, -((max_val-1)/2.0+1), -1,-0.5,0,0.5,1,((max_val-1)/2.0+1), max_val]
             alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
                 c_trg = c_org.clone()
@@ -114,9 +115,12 @@ class FaderNet(TrainingModule):
 
 
 
-    def compute_sample_grid(self,x_sample,c_sample_list,c_org_sample,path=None,writer=False):
+    def compute_sample_grid(self,batch,max_val,path=None,writer=False):
+        x_sample, _, _, c_org_sample = batch
+        c_sample_list = self.create_interpolated_attr(c_org_sample, self.config.attrs,max_val=max_val)
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
+
         x_fake_list = [x_sample[:,:3]]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample)#*x_sample[:,3:]
@@ -222,7 +226,7 @@ class FaderNet(TrainingModule):
         g_loss = g_loss_rec
         scalars['G/loss_rec'] = g_loss_rec.item()
 
-        #latent discriminator for attribute in the material part TODO mat part only
+        #latent discriminator for attribute in the material part 
         if self.config.use_latent_disc:
             out_att = self.LD(bneck)
             g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, a_att)
@@ -242,26 +246,16 @@ class FaderNet(TrainingModule):
         self.optimize(self.optimizer_G,g_loss)
         # summarize
         scalars['G/loss'] = g_loss.item()
-
-
-
-
-
         return scalars
 
     def validating_step(self, batch):
-        Ia_sample, _, _, a_sample = batch
-        #Ia_sample = Ia_sample.to(self.device)
-        #a_sample = a_sample.to(self.device)
-        b_samples = self.create_interpolated_attr(a_sample, self.config.attrs)
-        self.compute_sample_grid(Ia_sample,b_samples,a_sample,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
+        self.compute_sample_grid(batch,5.0,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
 
 
     def testing_step(self, batch, batch_id):
-        i, (x_real, _, _, c_org) = batch_id, batch
-        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=3.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
-        c_trg_list = self.create_interpolated_attr(c_org, self.config.attrs,max_val=5.0)
-        self.compute_sample_grid(x_real,c_trg_list,c_org,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        i=batch_id
+        self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+
 
 

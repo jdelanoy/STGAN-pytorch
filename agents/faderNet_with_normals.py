@@ -12,112 +12,30 @@ from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtra
 
 from utils.im_util import denorm, write_labels_on_images
 import numpy as np
-from agents.trainingModule import TrainingModule
+from agents.faderNet import FaderNet
 
 
 
-class FaderNetWithNormals(TrainingModule):
+class FaderNetWithNormals(FaderNet):
     def __init__(self, config):
         super(FaderNetWithNormals, self).__init__(config)
 
+        ###only change generator
         self.G = FaderNetGeneratorWithNormals(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals)
-        self.D = Discriminator(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim)
-        self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like)
+
 
         ### load the normal predictor network
         self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
         self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
         self.normal_G.eval()
 
-
-        print(self.G)
-        if self.config.use_image_disc:
-            print(self.D)
-        if self.config.use_latent_disc:
-            print(self.LD)
-
-         # create all the loss functions that we may need for perceptual loss
-        self.loss_P = PerceptualLoss()
-        self.loss_S = StyleLoss()
-        self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4'])
-
-
-        self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
-            self.config.data_root, self.config.mode, self.config.attrs,
-            self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation, mask_input_bg=config.mask_input_bg)
-
         self.logger.info("FaderNet with normals ready")
 
-
-
-    ################################################################
-    ###################### SAVE/lOAD ###############################
-    def save_checkpoint(self):
-        self.save_one_model(self.G,self.optimizer_G,'G')
-        if self.config.use_image_disc:
-            self.save_one_model(self.D,self.optimizer_D,'D')
-        if self.config.use_latent_disc:
-            self.save_one_model(self.LD,self.optimizer_LD,'LD')
-
-    def load_checkpoint(self):
-        if self.config.checkpoint is None:
-            return
-
-        self.load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
-        if (self.config.use_image_disc):
-            self.load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        if self.config.use_latent_disc:
-            self.load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
-
-        self.current_iteration = self.config.checkpoint
-
-
-    ################################################################
-    ################### OPTIM UTILITIES ############################
-
-    def setup_all_optimizers(self):
-        self.optimizer_G = self.build_optimizer(self.G, self.config.g_lr)
-        self.optimizer_D = self.build_optimizer(self.D, self.config.d_lr)
-        self.optimizer_LD = self.build_optimizer(self.LD, self.config.ld_lr)
-        self.load_checkpoint() #load checkpoint if needed 
-        self.lr_scheduler_G = self.build_scheduler(self.optimizer_G)
-        self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.config.use_image_disc))
-        self.lr_scheduler_LD = self.build_scheduler(self.optimizer_LD, not self.config.use_latent_disc)
-
-    def step_schedulers(self,scalars):
-        self.lr_scheduler_G.step()
-        self.lr_scheduler_D.step()
-        self.lr_scheduler_LD.step()
-        scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-        scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
-        scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
-
-    def eval_mode(self):
-        self.G.eval()
-        self.LD.eval()
-        self.D.eval()
-    def training_mode(self):
-        self.G.train()
-        self.LD.train()
-        self.D.train()
 
 
 
     ################################################################
     ##################### EVAL UTILITIES ###########################
-
-
-    def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
-        """Generate target domain labels for debugging and testing: linearly sample attribute"""
-        c_trg_list = [c_org.to(self.device)]
-        for i in range(len(selected_attrs)):
-            alphas = np.linspace(-max_val, max_val, 10)
-            for alpha in alphas:
-                c_trg = c_org.clone()
-                c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
-                c_trg_list.append(c_trg.to(self.device))
-        return c_trg_list
-
 
 
     def compute_sample_grid(self,batch,max_val,path=None,writer=False):
@@ -235,7 +153,7 @@ class FaderNetWithNormals(TrainingModule):
         g_loss = g_loss_rec
         scalars['G/loss_rec'] = g_loss_rec.item()
 
-        #latent discriminator for attribute in the material part TODO mat part only
+        #latent discriminator for attribute in the material part 
         if self.config.use_latent_disc:
             out_att = self.LD(bneck)
             g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, a_att)
@@ -255,20 +173,4 @@ class FaderNetWithNormals(TrainingModule):
         self.optimize(self.optimizer_G,g_loss)
         # summarize
         scalars['G/loss'] = g_loss.item()
-
-
-
-
-
         return scalars
-
-    def validating_step(self, batch):
-        self.compute_sample_grid(batch,5.0,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
-
-
-    def testing_step(self, batch, batch_id):
-        i=batch_id
-        self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
-        self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
-
-
