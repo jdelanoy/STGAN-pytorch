@@ -149,11 +149,11 @@ class FaderNetGenerator(Unet):
 
 
 class FaderNetGeneratorWithNormals(Unet):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like)
         self.attr_dim = attr_dim
         self.n_attr_deconv = n_attr_deconv
-        self.n_concat_normals = 4
+        self.n_concat_normals = n_concat_normals
         ##### change decoder : get attribute as input
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals)
 
