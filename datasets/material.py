@@ -258,16 +258,23 @@ class MaterialDataLoader(object):
         ])
         if self.data_augmentation:
             train_trf = T.Compose([
-                #T.RandomHorizontalFlip(), #TODO recode for normals
-                #T.RandomVerticalFlip(), #TODO recode for normals
+                T.Resize(256), #suppose the dataset is of size 256
+                #T.RandomHorizontalFlip(0.5), #TODO recode for normals
+                #T.RandomVerticalFlip(0.5), #TODO recode for normals
                 T.RandomCrop(size=self.crop_size),
                 T.RandomResize(low=256, high=300),
                 #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
                 val_trf,
             ])
         else:
-            train_trf = val_trf
-
+            train_trf = T.Compose([
+                T.Resize(256),
+                val_trf,
+            ])
+        val_trf = T.Compose([
+            T.Resize(256),
+            val_trf,
+        ])
         return train_trf, val_trf
 
 
