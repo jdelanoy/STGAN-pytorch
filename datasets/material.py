@@ -303,22 +303,27 @@ class MaterialDataLoader(object):
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    data_root = '/Users/delanoy/Documents/postdoc/project1_material_networks/dataset/renders_by_geom_ldr/'
+    data_root = '/Users/delanoy/Documents/postdoc/project1_material_networks/dataset/renders_by_geom_ldr/network_dataset/'
     data = MaterialDataset(root=data_root,
                            mode='train',
                            selected_attrs=['glossy'],
-                           transform=transforms.ToTensor())
-    sampler = DisentangledSampler(data, batch_size=8)
+                           transform=T.ToTensor(),
+                           mask_input_bg=True)
+    #sampler = DisentangledSampler(data, batch_size=8)
     loader = DataLoader(data,  batch_size=8, shuffle=True)
     iter(loader)
-    for imgs, labels, infos in loader:
-        from matplotlib import pyplot as plt
+    for imgs, normal, illum, attr in loader:
+        # from matplotlib import pyplot as plt
 
+        # # for i in range(len(imgs)):
+        # #     print (infos[i])
         for i in range(len(imgs)):
-            print (infos[i])
-        # for img in imgs:
-        #     toplot = img.permute(1, 2, 0).detach().cpu()
-        #     plt.imshow(toplot)
-        #     plt.show()
+            plt.subplot(1,3,1)
+            plt.imshow(imgs[i].permute(1, 2, 0).detach().cpu(),cmap='gray')
+            plt.subplot(1,3,2)
+            plt.imshow(normal[i].permute(1, 2, 0).detach().cpu(),cmap='gray')
+            plt.subplot(1,3,3)
+            plt.imshow(illum[i].permute(1, 2, 0).detach().cpu(),cmap='gray')
+            plt.show()
 
         input('press key to continue plotting')
