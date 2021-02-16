@@ -210,7 +210,7 @@ class MaterialDataset(data.Dataset):
             #concatenate everything
             image,normals = self.transform(image,normals) 
         
-        if mask_input_bg:
+        if self.mask_input_bg:
             image = image*image[3:]
             normals = normals*normals[3:]
         

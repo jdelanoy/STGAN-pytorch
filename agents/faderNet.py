@@ -106,7 +106,7 @@ class FaderNet(TrainingModule):
         c_trg_list = [c_org.to(self.device)]
         for i in range(len(selected_attrs)):
             alphas = [-max_val, -((max_val-1)/2.0+1), -1,-0.5,0,0.5,1,((max_val-1)/2.0+1), max_val]
-            alphas = np.linspace(-max_val, max_val, 10)
+            #alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
                 c_trg = c_org.clone()
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
