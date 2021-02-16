@@ -146,6 +146,17 @@ def list2idxs(l):
     return l, idx2obj, obj2idx
 
 
+def extract_highlights(image):
+    mask=(image[:,:,3:]/255.0)
+    image_bw = np.sum(image[:,:,:3] * [0.299,0.587,0.114],axis=2,keepdims=True)*mask
+    #print(image_bw.shape,image.shape)
+    #compute median color
+    image_ma= np.ma.masked_array(image_bw, 1-mask)
+    med=np.ma.median(image_ma)
+    image_high = np.clip(image_bw-med,0,255).astype(np.uint8)#+med
+    return image_high
+
+
 class MaterialDataset(data.Dataset):
     def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None, mask_input_bg=True):
         items = make_dataset(root, mode, selected_attrs)
@@ -183,6 +194,7 @@ class MaterialDataset(data.Dataset):
         size=image_rgb.shape[0]
         #read normals if it exists (otherwise, put the image), and the mask
         normals_bgra = cv2.imread(os.path.join(self.root, "normals", self.files[index][:-3]+"png"), -1)
+        illum = cv2.imread(os.path.join(self.root, "illum", self.files[index]), -1)
         if (type(normals_bgra) is np.ndarray):
             normals = np.ndarray((size,size,4), dtype=np.uint8)
             cv2.mixChannels([normals_bgra], [normals], [0,2, 1,1, 2,0, 3,3])
@@ -192,6 +204,10 @@ class MaterialDataset(data.Dataset):
             cv2.mixChannels([image_rgb,mask], [normals], [0,0, 1,1, 2,2, 3,3])
         image = np.ndarray(normals.shape, dtype=np.uint8)
         cv2.mixChannels([image_rgb,normals], [image], [0,0, 1,1, 2,2, 6,3])
+        if (not type(illum) is np.ndarray):
+            illum = extract_highlights(image)
+        else:
+            illum = illum[:,:,np.newaxis]        
 
         ##### PIL version: faster but apply the alpha channel when resizing
         #image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
@@ -208,32 +224,12 @@ class MaterialDataset(data.Dataset):
         #normals.putalpha(mask)
         if self.transform is not None:
             #concatenate everything
-            image,normals = self.transform(image,normals) 
+            image,normals,illum = self.transform(image,normals,illum) 
         
         if self.mask_input_bg:
             image = image*image[3:]
             normals = normals*normals[3:]
 
-
-        rgb2gray = np.array([0.299,0.587,0.114])[:,np.newaxis,np.newaxis]
-        image_bw = np.sum(image[:3].numpy() * rgb2gray,axis=0)*image[3:].numpy()
-        #compute median color
-        image_ma= np.ma.masked_array(image_bw, 1-image[3:].numpy())
-        med=np.ma.median(image_ma)
-        image_high = np.clip(image_bw-med,0,1).transpose(1,2,0).astype(np.float32)#+med
-        to_tensor=Tvision.ToTensor()
-        illum=to_tensor(image_high)
-        #print(image_high.shape,illum.shape)
-
-
-        # from matplotlib import pyplot as plt
-        # plt.subplot(2,2,1)
-        # plt.imshow(image.permute(1, 2, 0).detach().cpu(),cmap='gray')
-        # plt.subplot(2,2,3)
-        # plt.imshow(image_bw.transpose(1, 2, 0),cmap='gray')
-        # plt.subplot(2,2,2)
-        # plt.imshow(image_high.transpose(1, 2, 0),cmap='gray')
-        # plt.show()
 
 
         if self.disentangled:
