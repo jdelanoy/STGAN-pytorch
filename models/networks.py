@@ -70,7 +70,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
-        if (i < add_normal_map): dec_in += 3
+        if (i < add_normal_map): dec_in += 4
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):

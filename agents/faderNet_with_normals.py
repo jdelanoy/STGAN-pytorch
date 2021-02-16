@@ -39,13 +39,13 @@ class FaderNetWithNormals(FaderNet):
 
 
     def compute_sample_grid(self,batch,max_val,path=None,writer=False):
-        x_sample, normals, _, c_org_sample = batch
+        x_sample, normals, illum, c_org_sample = batch
         c_sample_list = self.create_interpolated_attr(c_org_sample, self.config.attrs,max_val=max_val)
         x_sample = x_sample.to(self.device)
         c_org_sample = c_org_sample.to(self.device)
-        normals=normals[:,:3].to(self.device) #self.get_normals(x_sample)
+        normals=torch.cat([normals[:,:3],illum],dim=1).to(self.device) #self.get_normals(x_sample)
 
-        x_fake_list = [normals,x_sample[:,:3]]
+        x_fake_list = [normals[:,:3],torch.cat([illum,illum,illum],dim=1),x_sample[:,:3]]
         for c_trg_sample in c_sample_list:
             fake_image=self.G(x_sample, c_trg_sample,normals)*x_sample[:,3:]
             write_labels_on_images(fake_image,c_trg_sample)
@@ -74,7 +74,7 @@ class FaderNetWithNormals(FaderNet):
         # ================================================================================= #
         #                            1. Preprocess input data                               #
         # ================================================================================= #
-        Ia, normals, _, a_att = batch
+        Ia, normals, illum, a_att = batch
         # generate target domain labels randomly
         b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
@@ -83,7 +83,8 @@ class FaderNetWithNormals(FaderNet):
         mask = Ia[:,3:]
         a_att = a_att.to(self.device)   # attribute of image
         b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
-        normals_hat=normals[:,:3].to(self.device) #self.get_normals(Ia)
+        normals_hat=torch.cat([normals[:,:3],illum],dim=1).to(self.device) #self.get_normals(Ia)
+        #print(normals_hat.shape,normals_hat)
 
         scalars = {}
         # ================================================================================= #

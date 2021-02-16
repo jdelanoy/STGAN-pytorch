@@ -220,7 +220,7 @@ class MaterialDataset(data.Dataset):
         #compute median color
         image_ma= np.ma.masked_array(image_bw, 1-image[3:].numpy())
         med=np.ma.median(image_ma)
-        image_high = np.clip(image_bw-med,0,1).transpose(1,2,0)#+med
+        image_high = np.clip(image_bw-med,0,1).transpose(1,2,0).astype(np.float32)#+med
         to_tensor=Tvision.ToTensor()
         illum=to_tensor(image_high)
         #print(image_high.shape,illum.shape)
