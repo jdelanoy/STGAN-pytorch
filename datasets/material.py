@@ -2,7 +2,7 @@ import os
 import math
 import torch
 from torch.utils import data
-#from torchvision import transforms as T
+from torchvision import transforms as Tvision
 import datasets.transforms as T
 from PIL import Image
 import random
@@ -213,8 +213,28 @@ class MaterialDataset(data.Dataset):
         if self.mask_input_bg:
             image = image*image[3:]
             normals = normals*normals[3:]
-        
-        illum=image
+
+
+        rgb2gray = np.array([0.299,0.587,0.114])[:,np.newaxis,np.newaxis]
+        image_bw = np.sum(image[:3].numpy() * rgb2gray,axis=0)*image[3:].numpy()
+        #compute median color
+        image_ma= np.ma.masked_array(image_bw, 1-image[3:].numpy())
+        med=np.ma.median(image_ma)
+        image_high = np.clip(image_bw-med,0,1).transpose(1,2,0)#+med
+        to_tensor=Tvision.ToTensor()
+        illum=to_tensor(image_high)
+        #print(image_high.shape,illum.shape)
+
+
+        # from matplotlib import pyplot as plt
+        # plt.subplot(2,2,1)
+        # plt.imshow(image.permute(1, 2, 0).detach().cpu(),cmap='gray')
+        # plt.subplot(2,2,3)
+        # plt.imshow(image_bw.transpose(1, 2, 0),cmap='gray')
+        # plt.subplot(2,2,2)
+        # plt.imshow(image_high.transpose(1, 2, 0),cmap='gray')
+        # plt.show()
+
 
         if self.disentangled:
             return image,normals,illum, torch.FloatTensor(mat_attr), sampling_mode
