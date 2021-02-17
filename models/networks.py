@@ -56,7 +56,7 @@ class Encoder(nn.Module):
 
 
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=0):
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=0, add_illum_map=0):
     bias=normalization=='none'  #TODO old archi
     decoder = nn.ModuleList()
     for i in reversed(range(n_layers)):
@@ -70,7 +70,9 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
-        if (i < add_normal_map): dec_in += (4 if i > 0 else 3)
+        if (i < add_normal_map): dec_in += 3
+        if (i < add_illum_map): dec_in += 3
+
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):
@@ -174,13 +176,11 @@ class FaderNetGeneratorWithNormals(Unet):
             if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out=self.up(out)
             if i >= self.n_layers-self.n_concat_normals:
                 #add normal map to the last deconv
-                normals_layer=normal_pyramid[i-(self.n_layers-self.n_concat_normals)]
-                if(i >= self.n_layers-1): normals_layer = normals_layer[:,:3]
-                out = dec_layer(torch.cat([self.up(out), normals_layer], dim=1))
-            else:
-                out = dec_layer(self.up(out))
+                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-self.n_concat_normals)]], dim=1))
+            out = dec_layer(out)
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
 
@@ -191,6 +191,68 @@ class FaderNetGeneratorWithNormals(Unet):
         encodings,z = self.encode(x)
         return self.decode(a,z,normals,encodings)
 
+
+class FaderNetGeneratorWithNormalsAndIllum(Unet):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,n_concat_illum=1):
+        super(FaderNetGeneratorWithNormalsAndIllum, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like)
+        self.attr_dim = attr_dim
+        self.n_attr_deconv = n_attr_deconv
+        self.n_concat_normals = n_concat_normals
+        self.n_concat_illum = n_concat_illum
+        ##### change decoder : get attribute as input
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals, add_illum_map=self.n_concat_illum)
+
+        activation='leaky_relu'
+        norm='batch'
+        bias = norm == 'none' 
+        #series of convolutions for the illum
+        enc_layer=[ConvReluBn(nn.Conv2d(2, 3, 3, 1, 1,bias=bias),activation,normalization=norm),
+                ConvReluBn(nn.Conv2d(3, 3, 3, 1, 1,bias=bias),activation,normalization=norm),
+                ConvReluBn(nn.Conv2d(3, 3, 3, 1, 1,bias=bias),activation,normalization=norm)] 
+        self.illum_conv = (nn.Sequential(*enc_layer))
+  
+
+    def decode(self, a, bneck, normals, illum, encodings):
+        #expand dimensions of a
+        a = a.view((a.size(0), a.size(1), 1, 1))
+        # concat att to illum and convolve
+        size = illum.size(2)
+        attr = a.expand((a.size(0), a.size(1), size, size))
+        illum = self.illum_conv(torch.cat([illum, attr], dim=1))
+        illum_pyramid=[illum]
+        for i in range(self.n_concat_illum-1):
+            illum_pyramid.insert(0,nn.functional.interpolate(illum_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
+        #build pyramid of normals (should be directly provided in future version)
+        normal_pyramid=[normals]
+        for i in range(self.n_concat_normals-1):
+            normal_pyramid.insert(0,nn.functional.interpolate(normal_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            if i < self.n_attr_deconv:
+                #concatenate attribute
+                size = out.size(2)
+                attr = a.expand((a.size(0), a.size(1), size, size))
+                out = torch.cat([out, attr], dim=1)
+            if 0 < i <= self.skip_connections:
+                #do shortcut connection, not taking the first encoding (mat)
+                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out=self.up(out)
+            if i >= self.n_layers-self.n_concat_normals:
+                #add normal map to the last deconv
+                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-self.n_concat_normals)]], dim=1))
+            if i >= self.n_layers-self.n_concat_illum:
+                #add normal map to the last deconv
+                out = (torch.cat([out, illum_pyramid[i-(self.n_layers-self.n_concat_illum)]], dim=1))
+            out = dec_layer(out)
+        x = self.last_conv(out) #TODO old archi
+        x = torch.tanh(x)
+
+        return x
+
+    def forward(self, x,a,normals):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(a,z,normals,encodings)
 
 
 def FC_layers(in_dim,fc_dim,out_dim,tanh):
