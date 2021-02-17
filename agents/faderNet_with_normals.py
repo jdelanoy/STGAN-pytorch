@@ -37,25 +37,17 @@ class FaderNetWithNormals(FaderNet):
     ################################################################
     ##################### EVAL UTILITIES ###########################
 
+    def forward(self,batch):
+        x_sample, normals, illum, att = batch
+        normals=torch.cat([normals[:,:3],illum],dim=1)#.to(self.device) #self.get_normals(x_sample)
+        return self.G(x_sample, att,normals)
 
-    def compute_sample_grid(self,batch,max_val,path=None,writer=False):
-        x_sample, normals, illum, c_org_sample = batch
-        c_sample_list = self.create_interpolated_attr(c_org_sample, self.config.attrs,max_val=max_val)
-        x_sample = x_sample.to(self.device)
-        c_org_sample = c_org_sample.to(self.device)
-        normals=torch.cat([normals[:,:3],illum],dim=1).to(self.device) #self.get_normals(x_sample)
-
+    def init_sample_grid(self,batch):
+        x_sample, normals, illum, att = batch
         x_fake_list = [normals[:,:3],torch.cat([illum,illum,illum],dim=1),x_sample[:,:3]]
-        for c_trg_sample in c_sample_list:
-            fake_image=self.G(x_sample, c_trg_sample,normals)*x_sample[:,3:]
-            write_labels_on_images(fake_image,c_trg_sample)
-            x_fake_list.append(fake_image)
-        x_concat = torch.cat(x_fake_list, dim=3)
-        image = tvutils.make_grid(denorm(x_concat), nrow=1)
-        if writer:
-            self.writer.add_image('sample', image,self.current_iteration)
-        if path:
-            tvutils.save_image(image,path)
+        return x_fake_list
+
+
 
     def get_normals(self, img):
         normals=self.normal_G(img)
@@ -78,12 +70,12 @@ class FaderNetWithNormals(FaderNet):
         # generate target domain labels randomly
         b_att =  torch.rand_like(a_att)*2-1.0 # a_att + torch.randn_like(a_att)*self.config.gaussian_stddev
 
-        Ia = Ia.to(self.device)         # input images
+        #Ia = Ia.to(self.device)         # input images
         Ia_3ch = Ia[:,:3]
         mask = Ia[:,3:]
-        a_att = a_att.to(self.device)   # attribute of image
-        b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
-        normals_hat=torch.cat([normals[:,:3],illum],dim=1).to(self.device) #self.get_normals(Ia)
+        #a_att = a_att.to(self.device)   # attribute of image
+        #b_att = b_att.to(self.device)   # fake attribute (if GAN/classifier)
+        normals_hat=torch.cat([normals[:,:3],illum],dim=1)#.to(self.device) #self.get_normals(Ia)
         #print(normals_hat.shape,normals_hat)
 
         scalars = {}

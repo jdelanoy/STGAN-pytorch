@@ -143,6 +143,8 @@ class TrainingModule(object):
         finally:
             self.finalize()
 
+    def batch_to_device(self,batch):
+        return [elem.to(self.device) for elem in batch]
 
     def train(self):
         self.setup_all_optimizers()
@@ -150,7 +152,7 @@ class TrainingModule(object):
 
         # samples used for testing the net
         val_iter = iter(self.data_loader.val_loader)
-        val_data = next(val_iter)
+        val_data = self.batch_to_device(next(val_iter))
 
         data_iter = iter(self.data_loader.train_loader)
         start_time = time.time()
@@ -171,7 +173,7 @@ class TrainingModule(object):
                 #train
                 self.training_mode()
                 ##################### TRAINING STEP
-                scalars=self.training_step(train_data)
+                scalars=self.training_step(self.batch_to_device(train_data))
                 ###################################
                 self.current_iteration += 1
                 self.step_schedulers(scalars)
@@ -203,7 +205,7 @@ class TrainingModule(object):
         self.eval_mode()
         with torch.no_grad():
             for i, test_data in enumerate(tqdm_loader):
-                self.testing_step(test_data,i)
+                self.testing_step(self.batch_to_device(test_data),i)
 
 
     def finalize(self):
