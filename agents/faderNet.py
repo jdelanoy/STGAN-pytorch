@@ -107,7 +107,7 @@ class FaderNet(TrainingModule):
     def forward(self,batch,new_attr=None):
         x_sample, normals, illum, att = batch
         encodings,z = self.G.encode(x_sample)
-        return self.decode(batch,z,encodings)
+        return self.decode(batch,z,encodings,new_attr)
 
     def init_sample_grid(self,batch):
         x_sample, normals, illum, att = batch
