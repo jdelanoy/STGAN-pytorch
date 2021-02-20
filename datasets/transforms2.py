@@ -27,10 +27,7 @@ class Compose(object):
         for t in self.transforms:
             image, normals = t(image, normals)
         return image, normals
-    def __call__(self, image, normals, illum):
-        for t in self.transforms:
-            image, normals, illum = t(image, normals, illum)
-        return image, normals, illum
+
 
 
 class CenterCrop(object):
@@ -41,11 +38,7 @@ class CenterCrop(object):
         image = F.center_crop(image, self.size)
         normals = F.center_crop(normals, self.size)
         return image, normals
-    def __call__(self, image, normals, illum):
-        image = F.center_crop(image, self.size)
-        normals = F.center_crop(normals, self.size)
-        illum = F.center_crop(illum, self.size)
-        return image, normals, illum
+
 
 class Resize(object): 
     def __init__(self, size, interpolation=Image.BILINEAR):
@@ -56,11 +49,7 @@ class Resize(object):
         image = F.resize(image, self.size, self.interpolation)
         normals = F.resize(normals, self.size, self.interpolation)
         return image, normals
-    def __call__(self, image, normals, illum): #TODO warning f
-        image = F.resize(image, self.size, self.interpolation)
-        normals = F.resize(normals, self.size, self.interpolation)
-        illum = F.resize(illum, self.size, self.interpolation)
-        return image, normals, illum
+
 
 class ToTensor(object):
     def __call__(self, image, normals):
@@ -68,11 +57,7 @@ class ToTensor(object):
         normals = F.to_tensor(normals)
         #normals = torch.as_tensor(np.array(normals), dtype=torch.int64) #for masks
         return image, normals
-    def __call__(self, image, normals, illum):
-        image = F.to_tensor(image)
-        normals = F.to_tensor(normals)
-        illum = F.to_tensor(illum)
-        return image, normals, illum
+
 
 class Normalize(object):
     def __init__(self, mean, std):
@@ -83,11 +68,7 @@ class Normalize(object):
         image = F.normalize(image, mean=self.mean, std=self.std)
         normals = F.normalize(normals, mean=self.mean, std=self.std)
         return image, normals
-    def __call__(self, image, normals, illum):
-        image = F.normalize(image, mean=self.mean, std=self.std)
-        normals = F.normalize(normals, mean=self.mean, std=self.std)
-        illum = F.normalize(illum, mean=self.mean, std=self.std)
-        return image, normals, illum
+
 
 class RandomHorizontalFlip(object):
     def __init__(self, flip_prob):
@@ -98,12 +79,7 @@ class RandomHorizontalFlip(object):
             image = F.hflip(image)
             normals = F.hflip(normals) #TODO change normals
         return image, normals
-    def __call__(self, image, normals, illum):
-        if random.random() < self.flip_prob:
-            image = F.hflip(image)
-            normals = F.hflip(normals) #TODO change normals
-            illum = F.hflip(illum) 
-        return image, normals, illum
+
 
 class RandomVerticalFlip(object):
     def __init__(self, flip_prob):
@@ -115,13 +91,7 @@ class RandomVerticalFlip(object):
             normals = F.vflip(normals) 
             #TODO change normals
         return image, normals
-    def __call__(self, image, normals, illum):
-        if random.random() < self.flip_prob:
-            image = F.vflip(image)
-            normals = F.vflip(normals) 
-            illum = F.vflip(illum) 
-            #TODO change normals
-        return image, normals, illum
+
 
 class RandomCrop(object):
     def __init__(self, size):
@@ -134,14 +104,7 @@ class RandomCrop(object):
         image = F.crop(image, *crop_params)
         normals = F.crop(normals, *crop_params)
         return image, normals
-    def __call__(self, image, normals, illum):
-        #image = pad_if_smaller(image, self.size)
-        #normals = pad_if_smaller(normals, self.size)
-        crop_params = T.RandomCrop.get_params(image, (self.size, self.size))
-        image = F.crop(image, *crop_params)
-        normals = F.crop(normals, *crop_params)
-        illum = F.crop(illum, *crop_params)
-        return image, normals, illum
+
 
 
 class RandomResize(object):
@@ -155,12 +118,7 @@ class RandomResize(object):
         image = F.resize(image, (size,size), self.interpolation)
         normals = F.resize(normals, (size,size), self.interpolation)
         return image, normals
-    def __call__(self, image, normals, illum): 
-        size = np.random.randint(self.low, self.high)
-        image = F.resize(image, (size,size), self.interpolation)
-        normals = F.resize(normals, (size,size), self.interpolation)
-        illum = F.resize(illum, (size,size), self.interpolation)
-        return image, normals, illum
+
 
 class RandomRotation(object):
     def __init__(self, degrees, resample=False, expand=False, center=None, fill=None):
@@ -176,10 +134,4 @@ class RandomRotation(object):
         normals =  F.rotate(normals, angle, self.resample, self.expand, self.center ) 
         #TODO change normals
         return image, normals
-    def __call__(self, image, normals, illum): 
-        angle = T.RandomRotation.get_params(self.degrees)
-        image =  F.rotate(image, angle, self.resample, self.expand, self.center)
-        normals =  F.rotate(normals, angle, self.resample, self.expand, self.center ) 
-        #TODO change normals
-        illum =  F.rotate(illum, angle, self.resample, self.expand, self.center ) 
-        return image, normals, illum
+

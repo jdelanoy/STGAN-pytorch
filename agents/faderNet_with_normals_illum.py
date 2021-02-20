@@ -29,6 +29,12 @@ class FaderNetWithNormalsAndIllum(FaderNet):
         #self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
         self.normal_G.eval()
 
+        #change data loader to load illuminations
+        self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
+            self.config.data_root, self.config.mode, self.config.attrs,
+            self.config.crop_size, self.config.image_size, self.config.batch_size, self.config.data_augmentation, mask_input_bg=config.mask_input_bg, use_illum=True)
+
+
         self.logger.info("FaderNet with normals and illum ready")
 
 
