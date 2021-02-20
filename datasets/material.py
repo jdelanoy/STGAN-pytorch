@@ -239,7 +239,7 @@ class MaterialDataset(data.Dataset):
         if self.mask_input_bg:
             image = image*image[3:]
             normals = normals*normals[3:]
-
+            illum = illum*image[3:]
 
 
         if self.disentangled:
