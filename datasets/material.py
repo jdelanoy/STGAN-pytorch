@@ -3,11 +3,12 @@ import math
 import torch
 from torch.utils import data
 from torchvision import transforms as Tvision
-import datasets.transforms as T
+# import datasets.transforms2 as T2
+# import datasets.transforms3 as T3
 from PIL import Image
 import random
 import numpy as np
-from utils.im_util import get_alpha_channel
+#from utils.im_util import get_alpha_channel
 import cv2
 from matplotlib import pyplot as plt
 
@@ -158,7 +159,7 @@ def extract_highlights(image):
 
 
 class MaterialDataset(data.Dataset):
-    def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None, mask_input_bg=True):
+    def __init__(self, root, mode, selected_attrs, disentangled=False, transform=None, mask_input_bg=True, use_illum=False):
         items = make_dataset(root, mode, selected_attrs)
 
         self.files = items['files']
@@ -177,6 +178,7 @@ class MaterialDataset(data.Dataset):
         self.disentangled=disentangled
         self.transform = transform
         self.mask_input_bg = mask_input_bg
+        self.use_illum=use_illum
 
     def __getitem__(self, index_and_mode):
         if self.disentangled:
@@ -194,7 +196,6 @@ class MaterialDataset(data.Dataset):
         size=image_rgb.shape[0]
         #read normals if it exists (otherwise, put the image), and the mask
         normals_bgra = cv2.imread(os.path.join(self.root, "normals", self.files[index][:-3]+"png"), -1)
-        illum = cv2.imread(os.path.join(self.root, "illum", self.files[index]), -1)
         if (type(normals_bgra) is np.ndarray):
             normals = np.ndarray((size,size,4), dtype=np.uint8)
             cv2.mixChannels([normals_bgra], [normals], [0,2, 1,1, 2,0, 3,3])
@@ -204,10 +205,17 @@ class MaterialDataset(data.Dataset):
             cv2.mixChannels([image_rgb,mask], [normals], [0,0, 1,1, 2,2, 3,3])
         image = np.ndarray(normals.shape, dtype=np.uint8)
         cv2.mixChannels([image_rgb,normals], [image], [0,0, 1,1, 2,2, 6,3])
-        if (not type(illum) is np.ndarray):
-            illum = extract_highlights(image)
+        
+        if (self.use_illum):
+            illum = cv2.imread(os.path.join(self.root, "illum", self.files[index]), -1)
+            if (not type(illum) is np.ndarray):
+                illum = extract_highlights(image)
+                illum=np.concatenate([illum,illum,illum],axis=2) #3channels?
+            else:
+                illum = cv2.cvtColor(illum, cv2.COLOR_BGR2RGB) #or cv2.COLOR_BGR2GRAY
+                #illum = illum[:,:,np.newaxis] #image is already B&W
         else:
-            illum = illum[:,:,np.newaxis]        
+            illum=torch.Tensor()
 
         ##### PIL version: faster but apply the alpha channel when resizing
         #image = Image.open(os.path.join(self.root, "renderings", self.files[index]))
@@ -223,8 +231,10 @@ class MaterialDataset(data.Dataset):
 
         #normals.putalpha(mask)
         if self.transform is not None:
-            #concatenate everything
-            image,normals,illum = self.transform(image,normals,illum) 
+            if self.use_illum:
+                image,normals,illum = self.transform(image,normals,illum) 
+            else:
+                image,normals = self.transform(image,normals) 
         
         if self.mask_input_bg:
             image = image*image[3:]
@@ -243,7 +253,7 @@ class MaterialDataset(data.Dataset):
 
 
 class MaterialDataLoader(object):
-    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False, mask_input_bg=True):
+    def __init__(self, root, mode, selected_attrs, crop_size=None, image_size=128, batch_size=16, data_augmentation=False, mask_input_bg=True, use_illum=False):
         if mode not in ['train', 'test']:
             return
 
@@ -253,21 +263,28 @@ class MaterialDataLoader(object):
         self.crop_size = crop_size
 
 
-        train_trf, val_trf = self.setup_transforms()
+        train_trf, val_trf = self.setup_transforms(use_illum)
         if mode == 'train':
             print("loading data")
-            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg)
+            val_set = MaterialDataset(root, 'val', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg, use_illum=use_illum)
             self.val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.val_iterations = int(math.ceil(len(val_set) / batch_size))
 
-            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf, mask_input_bg=mask_input_bg)
+            train_set = MaterialDataset(root, 'train', selected_attrs, transform=train_trf, mask_input_bg=mask_input_bg, use_illum=use_illum)
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
-            test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg)
+            test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg, use_illum=use_illum)
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
-    def setup_transforms(self):
+    def setup_transforms(self,use_illum):
+        global T
+        if (use_illum):
+            dset = __import__('datasets.transforms3', globals(), locals()) 
+            T = dset.transforms3
+        else:
+            dset = __import__('datasets.transforms2', globals(), locals()) 
+            T = dset.transforms2
         val_trf = T.Compose([
             T.CenterCrop(self.crop_size),
             T.Resize(self.image_size),
@@ -298,15 +315,38 @@ class MaterialDataLoader(object):
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
+    use_illum=True
+    global T
+    if (use_illum):
+        dset = __import__('transforms3', globals(), locals()) 
+        T = dset
+    else:
+        dset = __import__('transforms2', globals(), locals()) 
+        T = dset
+    val_trf = T.Compose([
+        T.CenterCrop(240),
+        T.Resize(128),
+        T.ToTensor()
+        #T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
+    ])
+    trf = T.Compose([
+        T.Resize(256), #suppose the dataset is of size 256
+        #T.RandomHorizontalFlip(0.5), #TODO recode for normals
+        #T.RandomVerticalFlip(0.5), #TODO recode for normals
+        T.RandomCrop(size=240),
+        T.RandomResize(low=256, high=300),
+        #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
+        val_trf,
+    ])
 
     data_root = '/Users/delanoy/Documents/postdoc/project1_material_networks/dataset/renders_by_geom_ldr/network_dataset/'
     data = MaterialDataset(root=data_root,
-                           mode='train',
+                           mode='test',
                            selected_attrs=['glossy'],
-                           transform=T.ToTensor(),
-                           mask_input_bg=True)
+                           transform=trf,
+                           mask_input_bg=True, use_illum=use_illum)
     #sampler = DisentangledSampler(data, batch_size=8)
-    loader = DataLoader(data,  batch_size=8, shuffle=True)
+    loader = DataLoader(data,  batch_size=1, shuffle=True)
     iter(loader)
     for imgs, normal, illum, attr in loader:
         # from matplotlib import pyplot as plt
@@ -314,6 +354,7 @@ if __name__ == '__main__':
         # # for i in range(len(imgs)):
         # #     print (infos[i])
         for i in range(len(imgs)):
+            #print(illum[i][:,0,0])
             plt.subplot(1,3,1)
             plt.imshow(imgs[i].permute(1, 2, 0).detach().cpu(),cmap='gray')
             plt.subplot(1,3,2)
@@ -321,5 +362,5 @@ if __name__ == '__main__':
             plt.subplot(1,3,3)
             plt.imshow(illum[i].permute(1, 2, 0).detach().cpu(),cmap='gray')
             plt.show()
-
-        input('press key to continue plotting')
+        print("done")
+        #input('press key to continue plotting')
