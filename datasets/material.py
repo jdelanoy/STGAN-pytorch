@@ -197,6 +197,8 @@ class MaterialDataset(data.Dataset):
         #read normals if it exists (otherwise, put the image), and the mask
         normals_bgra = cv2.imread(os.path.join(self.root, "normals", self.files[index][:-3]+"png"), -1)
         if (type(normals_bgra) is np.ndarray):
+            if normals_bgra.shape[0] != size :
+                normals_bgra = cv2.resize(normals_bgra,(size,size))
             normals = np.ndarray((size,size,4), dtype=np.uint8)
             cv2.mixChannels([normals_bgra], [normals], [0,2, 1,1, 2,0, 3,3])
         else:
@@ -239,7 +241,7 @@ class MaterialDataset(data.Dataset):
         if self.mask_input_bg:
             image = image*image[3:]
             normals = normals*normals[3:]
-            illum = illum*image[3:]
+            if self.use_illum: illum = illum*image[3:]
 
 
         if self.disentangled:
@@ -291,23 +293,24 @@ class MaterialDataLoader(object):
             T.ToTensor(),
             T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
         ])
+        original_size=512
         if self.data_augmentation:
             train_trf = T.Compose([
-                T.Resize(256), #suppose the dataset is of size 256
+                T.Resize(original_size), #suppose the dataset is of size 256
                 #T.RandomHorizontalFlip(0.5), #TODO recode for normals
                 #T.RandomVerticalFlip(0.5), #TODO recode for normals
                 T.RandomCrop(size=self.crop_size),
-                T.RandomResize(low=256, high=300),
+                T.RandomResize(low=original_size, high=int(original_size*1.1718)),
                 #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
                 val_trf,
             ])
         else:
             train_trf = T.Compose([
-                T.Resize(256),
+                T.Resize(original_size),
                 val_trf,
             ])
         val_trf = T.Compose([
-            T.Resize(256),
+            T.Resize(original_size),
             val_trf,
         ])
         return train_trf, val_trf
