@@ -9,7 +9,7 @@ import torchvision.utils as tvutils
 from datasets import *
 from models.networks import FaderNetGenerator, Discriminator, Latent_Discriminator
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
-
+from modules.GAN_loss import GANLoss
 from utils.im_util import denorm, write_labels_on_images
 import numpy as np
 from agents.trainingModule import TrainingModule
@@ -34,7 +34,7 @@ class FaderNet(TrainingModule):
         self.loss_P = PerceptualLoss().to(self.device)
         self.loss_S = StyleLoss().to(self.device)
         self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4']).to(self.device)
-
+        self.criterionGAN = GANLoss(self.config.gan_mode).to(self.device)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
@@ -184,13 +184,16 @@ class FaderNet(TrainingModule):
             Ib_hat = self.forward(batch,b_att) #G(Ia, b_att)
             out_disc_fake = self.D(Ib_hat.detach())
             #adversarial losses
-            d_loss_adv_real = - torch.mean(out_disc_real)
-            d_loss_adv_fake = torch.mean(out_disc_fake)
+            d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
+            d_loss_adv_real = self.criterionGAN(out_disc_real, True)
+            # d_loss_adv_real = - torch.mean(out_disc_real)
+            # d_loss_adv_fake = torch.mean(out_disc_fake)
             # compute loss for gradient penalty
-            alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
-            x_hat = (alpha * Ia[:,:3].data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
-            out_disc = self.D(x_hat)
-            d_loss_adv_gp = self.config.lambda_gp * self.gradient_penalty(out_disc, x_hat)
+            d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp)
+            # alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
+            # x_hat = (alpha * Ia[:,:3].data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
+            # out_disc = self.D(x_hat)
+            # d_loss_adv_gp = self.config.lambda_gp * self.gradient_penalty(out_disc, x_hat)
             #full GAN loss
             d_loss_adv = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
             d_loss = self.config.lambda_adv * d_loss_adv
@@ -254,7 +257,8 @@ class FaderNet(TrainingModule):
             Ib_hat = self.forward(batch, b_att)
             out_disc = self.D(Ib_hat)
             # GAN loss
-            g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
+            g_loss_adv = self.criterionGAN(out_disc_fake, True)
+            #g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
             g_loss += g_loss_adv
             scalars['G/loss_adv'] = g_loss_adv.item()
 

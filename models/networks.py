@@ -289,15 +289,22 @@ class Discriminator(nn.Module):
         layers=build_encoder_layers(conv_dim,n_layers, max_dim, im_channels, normalization='batch')
         self.conv = nn.Sequential(*layers)
 
-        feature_size = image_size // 2**n_layers
-        out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
-        self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
+        activation='relu'
+        normalization='batch'
+        bias = normalization == 'none'
+        c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
+        self.last_conv = ConvReluBn(nn.Conv2d(c_dim, 1, 4, 1, 1,bias=bias),activation,normalization)
+
+        # feature_size = image_size // 2**n_layers
+        # out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
+        # self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
         #self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
 
     def forward(self, x):
         y = self.conv(x)
-        y = y.view(y.size()[0], -1)
-        logit_adv = self.fc_adv(y)
+        logit_adv = self.last_conv(y)
+        # y = y.view(y.size()[0], -1)
+        # logit_adv = self.fc_adv(y)
         #logit_att = self.fc_att(y)
         return logit_adv
 
