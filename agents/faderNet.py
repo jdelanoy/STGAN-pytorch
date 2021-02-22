@@ -34,7 +34,8 @@ class FaderNet(TrainingModule):
         self.loss_P = PerceptualLoss().to(self.device)
         self.loss_S = StyleLoss().to(self.device)
         self.vgg16_f = VGG16FeatureExtractor(['relu1_2', 'relu2_2', 'relu3_3', 'relu4_4']).to(self.device)
-        self.criterionGAN = GANLoss(self.config.gan_mode).to(self.device)
+        if self.config.use_image_disc:
+            self.criterionGAN = GANLoss(self.config.gan_mode).to(self.device)
 
         self.data_loader = globals()['{}_loader'.format(self.config.dataset)](
             self.config.data_root, self.config.mode, self.config.attrs,
