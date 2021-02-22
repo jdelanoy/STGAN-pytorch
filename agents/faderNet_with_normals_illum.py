@@ -50,7 +50,8 @@ class FaderNetWithNormalsAndIllum(FaderNet):
 
     def init_sample_grid(self,batch):
         x_sample, normals, illum, att = batch
-        x_fake_list = [normals[:,:3],torch.cat([illum,illum,illum],dim=1),x_sample[:,:3]]
+        x_fake_list = [normals[:,:3],illum,x_sample[:,:3]]
+        #x_fake_list = [normals[:,:3],torch.cat([illum,illum,illum],dim=1),x_sample[:,:3]]
         return x_fake_list
 
 

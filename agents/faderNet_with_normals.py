@@ -26,7 +26,7 @@ class FaderNetWithNormals(FaderNet):
 
         ### load the normal predictor network
         self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
-        self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
+        #self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
         self.normal_G.eval()
 
         self.logger.info("FaderNet with normals ready")
