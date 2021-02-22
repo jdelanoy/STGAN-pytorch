@@ -8,7 +8,7 @@ from models.blocks import *
 
 def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',dropout=0, vgg_like=0):
     bias = normalization == 'none'  # use bias only if we do not use a normalization layer  #TODO old archi
-    kernel_sizes=[4,4,4,4,4,4,4] #[7,5,5,3,3,3,3]  #TODO old archi
+    kernel_sizes=[4,4,4,4,4,4,4,4,4] #[7,5,5,3,3,3,3,3,3]  #TODO old archi
     
     layers = []
     in_channels = im_channels
@@ -71,7 +71,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
         if (i < add_normal_map): dec_in += 3
-        if (i < add_illum_map): dec_in += 3
+        if (i < add_illum_map): dec_in += 6
 
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
@@ -206,9 +206,9 @@ class FaderNetGeneratorWithNormalsAndIllum(Unet):
         norm='batch'
         bias = norm == 'none' 
         #series of convolutions for the illum
-        enc_layer=[ConvReluBn(nn.Conv2d(2, 3, 3, 1, 1,bias=bias),activation,normalization=norm),
-                ConvReluBn(nn.Conv2d(3, 3, 3, 1, 1,bias=bias),activation,normalization=norm),
-                ConvReluBn(nn.Conv2d(3, 3, 3, 1, 1,bias=bias),activation,normalization=norm)] 
+        enc_layer=[ConvReluBn(nn.Conv2d(4, 6, 3, 1, 1,bias=bias),activation,normalization=norm),
+                ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=norm),
+                ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=norm)] 
         self.illum_conv = (nn.Sequential(*enc_layer))
   
 
