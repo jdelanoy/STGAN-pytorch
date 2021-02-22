@@ -173,16 +173,17 @@ class TrainingModule(object):
                 #train
                 self.training_mode()
                 ##################### TRAINING STEP
-                scalars=self.training_step(self.batch_to_device(train_data))
+                self.scalars = {}
+                self.training_step(self.batch_to_device(train_data))
                 ###################################
                 self.current_iteration += 1
-                self.step_schedulers(scalars)
+                self.step_schedulers()
 
                 # print summary on terminal and on tensorboard
                 if self.current_iteration % self.config.summary_step == 0:
                     tdqm_post["Time"]=str(datetime.timedelta(seconds=time.time() - start_time))[:-7]
                     tqdm_loader.set_postfix(tdqm_post)
-                    for tag, value in scalars.items():
+                    for tag, value in self.scalars.items():
                         self.writer.add_scalar(tag, value, self.current_iteration)
 
                 # sample
@@ -224,7 +225,7 @@ class TrainingModule(object):
     def setup_all_optimizers(self):
         raise NotImplementedError
     #step scheduler and log them into dict
-    def step_schedulers(self,scalars):
+    def step_schedulers(self):
         raise NotImplementedError
 
     def training_step(self, batch):

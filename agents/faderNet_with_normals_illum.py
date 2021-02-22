@@ -42,23 +42,21 @@ class FaderNetWithNormalsAndIllum(FaderNet):
 
     ################################################################
     ##################### EVAL UTILITIES ###########################
-    def decode(self,batch,bneck,encodings,new_attr=None):
-        x_sample, normals, illum, att = batch
-        if new_attr != None: att=new_attr
-        normals=normals[:,:3] #torch.cat([normals[:,:3],illum],dim=1) #self.get_normals(x_sample)
-        return self.G.decode(att,bneck,normals,illum,encodings)
+    def decode(self,bneck,encodings,att):
+        normals= self.get_normals()
+        return self.G.decode(att,bneck,normals,self.batch_illum,encodings)
 
-    def init_sample_grid(self,batch):
-        x_sample, normals, illum, att = batch
-        x_fake_list = [normals[:,:3],illum,x_sample[:,:3]]
-        #x_fake_list = [normals[:,:3],torch.cat([illum,illum,illum],dim=1),x_sample[:,:3]]
+    def init_sample_grid(self):
+        x_fake_list = [self.get_normals(),self.batch_illum,self.batch_Ia[:,:3]]
+        #x_fake_list = [self.get_normals(),torch.cat([illum,illum,illum],dim=1),self.batch_Ia[:,:3]]
         return x_fake_list
 
 
+    def get_normals(self):
+        return self.batch_normals[:,:3]
+        normals=self.normal_G(self.batch_Ia)
+        return normals*self.batch_Ia[:,3:]
 
-    def get_normals(self, img):
-        normals=self.normal_G(img)
-        return normals*img[:,3:]
 
 
 

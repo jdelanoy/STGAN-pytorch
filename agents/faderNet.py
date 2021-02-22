@@ -78,13 +78,13 @@ class FaderNet(TrainingModule):
         self.lr_scheduler_D = self.build_scheduler(self.optimizer_D,not(self.config.use_image_disc))
         self.lr_scheduler_LD = self.build_scheduler(self.optimizer_LD, not self.config.use_latent_disc)
 
-    def step_schedulers(self,scalars):
+    def step_schedulers(self):
         self.lr_scheduler_G.step()
         self.lr_scheduler_D.step()
         self.lr_scheduler_LD.step()
-        scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
-        scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
-        scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
+        self.scalars['lr/g_lr'] = self.lr_scheduler_G.get_lr()[0]
+        self.scalars['lr/ld_lr'] = self.lr_scheduler_LD.get_lr()[0]
+        self.scalars['lr/d_lr'] = self.lr_scheduler_D.get_lr()[0]
 
     def eval_mode(self):
         self.G.eval()
@@ -99,19 +99,20 @@ class FaderNet(TrainingModule):
 
     ################################################################
     ##################### EVAL UTILITIES ###########################
-    def decode(self,batch,bneck,encodings,new_attr=None):
-        x_sample, normals, illum, att = batch
-        if new_attr != None: att=new_attr
+    def decode(self,bneck,encodings,att):
         return self.G.decode(att,bneck,encodings)
+    def encode(self):
+        return self.G.encode(self.batch_Ia)
+    def forward(self,new_attr=None):
+        encodings,z = self.encode()
+        if new_attr != None: att=new_attr
+        else: att = self.batch_a_att
+        return self.decode(z,encodings,att)
 
-    def forward(self,batch,new_attr=None):
-        x_sample, normals, illum, att = batch
-        encodings,z = self.G.encode(x_sample)
-        return self.decode(batch,z,encodings,new_attr)
 
-    def init_sample_grid(self,batch):
-        x_sample, normals, illum, att = batch
-        x_fake_list = [x_sample[:,:3]]
+
+    def init_sample_grid(self):
+        x_fake_list = [self.batch_Ia[:,:3]]
         return x_fake_list
 
     def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
@@ -129,12 +130,12 @@ class FaderNet(TrainingModule):
 
 
     def compute_sample_grid(self,batch,max_val,path=None,writer=False):
-        x_sample, normals, illum, c_org_sample = batch
-        c_sample_list = self.create_interpolated_attr(c_org_sample, self.config.attrs,max_val=max_val)
+        self.batch_Ia, self.batch_normals, self.batch_illum, self.batch_a_att = batch
+        c_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=max_val)
 
-        x_fake_list = self.init_sample_grid(batch)
+        x_fake_list = self.init_sample_grid()
         for c_trg_sample in c_sample_list:
-            fake_image=self.forward(batch,c_trg_sample)*x_sample[:,3:]
+            fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
             write_labels_on_images(fake_image,c_trg_sample)
             x_fake_list.append(fake_image)
         x_concat = torch.cat(x_fake_list, dim=3)
@@ -155,33 +156,33 @@ class FaderNet(TrainingModule):
 
     ########################################################################################
     #####################                 TRAINING               ###########################
-    def train_latent_discriminator(self,Ia, normals, illum, a_att, scalars):
+    def train_latent_discriminator(self):
         self.G.eval()
         self.LD.train()
         # compute disc loss on encoded image
-        _,bneck = self.G.encode(Ia)
+        _,bneck = self.encode()
 
         for _ in range(self.config.n_critic_ld):
             out_att = self.LD(bneck)
             #classification loss
-            ld_loss = self.regression_loss(out_att, a_att)*self.config.lambda_LD
+            ld_loss = self.regression_loss(out_att, self.batch_a_att)*self.config.lambda_LD
             # backward and optimize
             self.optimize(self.optimizer_LD,ld_loss)
             # summarize
-            scalars['LD/loss'] = ld_loss.item()
+            self.scalars['LD/loss'] = ld_loss.item()
 
 
 
-    def train_GAN_discriminator(self,Ia, normals, illum, a_att, scalars):
+    def train_GAN_discriminator(self):
         self.G.eval()
         self.D.train()
 
         for _ in range(self.config.n_critic):
-            b_att =  torch.rand_like(a_att)*2-1.0 
+            b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
             # input is the real image Ia
-            out_disc_real = self.D(Ia[:,:3])
+            out_disc_real = self.D(self.batch_Ia[:,:3])
             # fake image Ib_hat
-            Ib_hat = self.forward(batch,b_att) #G(Ia, b_att)
+            Ib_hat = self.forward(b_att) #G(Ia, b_att)
             out_disc_fake = self.D(Ib_hat.detach())
             #adversarial losses
             d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
@@ -189,7 +190,7 @@ class FaderNet(TrainingModule):
             # d_loss_adv_real = - torch.mean(out_disc_real)
             # d_loss_adv_fake = torch.mean(out_disc_fake)
             # compute loss for gradient penalty
-            d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp)
+            d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp)
             # alpha = torch.rand(Ia.size(0), 1, 1, 1).to(self.device)
             # x_hat = (alpha * Ia[:,:3].data + (1 - alpha) * Ib_hat.data).requires_grad_(True)
             # out_disc = self.D(x_hat)
@@ -197,37 +198,32 @@ class FaderNet(TrainingModule):
             #full GAN loss
             d_loss_adv = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
             d_loss = self.config.lambda_adv * d_loss_adv
-            scalars['D/loss_adv'] = d_loss.item()
-            scalars['D/loss_real'] = d_loss_adv_real.item()
-            scalars['D/loss_fake'] = d_loss_adv_fake.item()
-            scalars['D/loss_gp'] = d_loss_adv_gp.item()
+            self.scalars['D/loss_real'] = d_loss_adv_real
+            self.scalars['D/loss_fake'] = d_loss_adv_fake
+            self.scalars['D/loss_gp'] = d_loss_adv_gp
 
             # backward and optimize
             self.optimize(self.optimizer_D,d_loss)
             # summarize
-            scalars['D/loss'] = d_loss.item()
+            self.scalars['D/loss'] = d_loss
 
 
 
 
     def training_step(self, batch):
-        Ia, _, _, a_att = batch
-        scalars = {}
+        self.batch_Ia, self.batch_normals, self.batch_illum, self.batch_a_att = batch
 
         # ================================================================================= #
         #                           2. Train the discriminator                              #
         # ================================================================================= #
         if self.config.use_image_disc:
-            self.train_GAN_discriminator(*batch,scalars)
-
+            self.train_GAN_discriminator()
 
         # ================================================================================= #
         #                        3. Train the latent discriminator (FaderNet)               #
         # ================================================================================= #
         if self.config.use_latent_disc:
-            self.train_latent_discriminator(*batch,scalars)
-
-
+            self.train_latent_discriminator()
 
         # ================================================================================= #
         #                              3. Train the generator                               #
@@ -236,37 +232,37 @@ class FaderNet(TrainingModule):
         self.D.eval()
         self.LD.eval()
 
-        encodings,bneck = self.G.encode(Ia)
-        Ia_hat=self.decode(batch,bneck,encodings)
+        encodings,bneck = self.encode()
+        Ia_hat=self.decode(bneck,encodings,self.batch_a_att)
 
         #reconstruction loss
-        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(Ia[:,:3],Ia_hat,scalars)
+        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat,self.scalars)
         g_loss = g_loss_rec
-        scalars['G/loss_rec'] = g_loss_rec.item()
+        self.scalars['G/loss_rec'] = g_loss_rec
 
         #latent discriminator for attribute
         if self.config.use_latent_disc:
             out_att = self.LD(bneck)
-            g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, a_att)
+            g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, self.batch_a_att)
             g_loss += g_loss_latent
-            scalars['G/loss_latent'] = g_loss_latent.item()
+            self.scalars['G/loss_latent'] = g_loss_latent
 
         if self.config.use_image_disc:
-            b_att =  torch.rand_like(a_att)*2-1.0 
+            b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
             # original-to-target domain : Ib_hat -> GAN + classif
-            Ib_hat = self.forward(batch, b_att)
+            Ib_hat = self.forward(b_att)
             out_disc = self.D(Ib_hat)
             # GAN loss
-            g_loss_adv = self.criterionGAN(out_disc_fake, True)
+            g_loss_adv = self.criterionGAN(out_disc, True)
             #g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
             g_loss += g_loss_adv
-            scalars['G/loss_adv'] = g_loss_adv.item()
+            self.scalars['G/loss_adv'] = g_loss_adv
 
         # backward and optimize
         self.optimize(self.optimizer_G,g_loss)
         # summarize
-        scalars['G/loss'] = g_loss.item()
-        return scalars
+        self.scalars['G/loss'] = g_loss
+        return self.scalars
 
     def validating_step(self, batch):
         self.compute_sample_grid(batch,5.0,os.path.join(self.config.sample_dir, 'sample_{}.png'.format(self.current_iteration)),writer=True)
