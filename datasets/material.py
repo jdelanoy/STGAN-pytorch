@@ -214,8 +214,11 @@ class MaterialDataset(data.Dataset):
                 illum = extract_highlights(image)
                 illum=np.concatenate([illum,illum,illum],axis=2) #3channels?
             else:
-                illum = cv2.cvtColor(illum, cv2.COLOR_BGR2RGB) #or cv2.COLOR_BGR2GRAY
-                #illum = illum[:,:,np.newaxis] #image is already B&W
+                if illum.ndim == 3: #RGB image
+                    illum = cv2.cvtColor(illum, cv2.COLOR_BGR2RGB) #or cv2.COLOR_BGR2GRAY
+                else:
+                    illum = illum[:,:,np.newaxis] #image is already B&W
+                    illum=np.concatenate([illum,illum,illum],axis=2) 
         else:
             illum=torch.Tensor()
 
@@ -293,7 +296,7 @@ class MaterialDataLoader(object):
             T.ToTensor(),
             T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
         ])
-        original_size=512
+        original_size=self.image_size*2
         if self.data_augmentation:
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
