@@ -197,14 +197,14 @@ class FaderNet(TrainingModule):
             # d_loss_adv_gp = self.config.lambda_gp * self.gradient_penalty(out_disc, x_hat)
             #full GAN loss
             d_loss = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
-            self.scalars['D/loss_real'] = d_loss_adv_real
-            self.scalars['D/loss_fake'] = d_loss_adv_fake
-            self.scalars['D/loss_gp'] = d_loss_adv_gp
+            self.scalars['D/loss_real'] = d_loss_adv_real.item()
+            self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
+            self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
             # backward and optimize
             self.optimize(self.optimizer_D,d_loss)
             # summarize
-            self.scalars['D/loss'] = d_loss
+            self.scalars['D/loss'] = d_loss.item()
 
 
 
@@ -235,16 +235,16 @@ class FaderNet(TrainingModule):
         Ia_hat=self.decode(bneck,encodings,self.batch_a_att)
 
         #reconstruction loss
-        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat,self.scalars)
+        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat)
         g_loss = g_loss_rec
-        self.scalars['G/loss_rec'] = g_loss_rec
+        self.scalars['G/loss_rec'] = g_loss_rec.item()
 
         #latent discriminator for attribute
         if self.config.use_latent_disc:
             out_att = self.LD(bneck)
             g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, self.batch_a_att)
             g_loss += g_loss_latent
-            self.scalars['G/loss_latent'] = g_loss_latent
+            self.scalars['G/loss_latent'] = g_loss_latent.item()
 
         if self.config.use_image_disc:
             b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
@@ -255,12 +255,12 @@ class FaderNet(TrainingModule):
             g_loss_adv = self.config.lambda_adv * self.criterionGAN(out_disc, True)
             #g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
             g_loss += g_loss_adv
-            self.scalars['G/loss_adv'] = g_loss_adv
+            self.scalars['G/loss_adv'] = g_loss_adv.item()
 
         # backward and optimize
         self.optimize(self.optimizer_G,g_loss)
         # summarize
-        self.scalars['G/loss'] = g_loss
+        self.scalars['G/loss'] = g_loss.item()
         return self.scalars
 
     def validating_step(self, batch):
