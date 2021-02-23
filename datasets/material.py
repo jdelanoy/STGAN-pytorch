@@ -293,7 +293,7 @@ class MaterialDataLoader(object):
             T.ToTensor(),
             T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
         ])
-        original_size=512
+        original_size=self.image_size*2
         if self.data_augmentation:
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
