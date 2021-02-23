@@ -117,27 +117,37 @@ class FaderNet(TrainingModule):
 
     def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
-        c_trg_list = [c_org]
+        all_lists=[]
         for i in range(len(selected_attrs)):
+            c_trg_list = [c_org]
             alphas = [-max_val, -((max_val-1)/2.0+1), -1,-0.5,0,0.5,1,((max_val-1)/2.0+1), max_val]
             #alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
                 c_trg = c_org.clone()
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
                 c_trg_list.append(c_trg)
-        return c_trg_list
+            all_lists.append(c_trg_list)
+        return all_lists
 
 
 
     def compute_sample_grid(self,batch,max_val,path=None,writer=False):
         self.batch_Ia, self.batch_normals, self.batch_illum, self.batch_a_att = batch
-        c_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=max_val)
+        all_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=max_val)
 
-        x_fake_list = self.init_sample_grid()
-        for c_trg_sample in c_sample_list:
-            fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
-            write_labels_on_images(fake_image,c_trg_sample)
-            x_fake_list.append(fake_image)
+        all_images=[]
+        for c_sample_list in all_sample_list:
+            x_fake_list = self.init_sample_grid()
+            for c_trg_sample in c_sample_list:
+                fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
+                write_labels_on_images(fake_image,c_trg_sample)
+                x_fake_list.append(fake_image)
+            all_images.append(x_fake_list)
+        #interleave the images for each attribute
+        size = all_images[0][0].shape
+        x_fake_list = []
+        for col in range(len(all_images[0])):
+            x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
         x_concat = torch.cat(x_fake_list, dim=3)
         image = tvutils.make_grid(denorm(x_concat), nrow=1)
         if writer:
