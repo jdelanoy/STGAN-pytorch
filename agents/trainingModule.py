@@ -87,23 +87,23 @@ class TrainingModule(object):
         #return F.binary_cross_entropy_with_logits(logit, target, reduction='sum') / logit.size(0)
     def classification_loss(self, logit, target): #static
         return F.cross_entropy(logit,target) 
-    def image_reconstruction_loss(self, Ia, Ia_hat, scalars):
+    def image_reconstruction_loss(self, Ia, Ia_hat):
         if self.config.rec_loss == 'l1':
             g_loss_rec = F.l1_loss(Ia,Ia_hat)
         elif self.config.rec_loss == 'l2':
             g_loss_rec = F.mse_loss(Ia,Ia_hat)
         elif self.config.rec_loss == 'perceptual':
             l1_loss=F.l1_loss(Ia,Ia_hat)
-            scalars['G/loss_rec_l1'] = l1_loss.item()
+            self.scalars['G/loss_rec_l1'] = l1_loss.item()
             g_loss_rec = l1_loss
             #add perceptual loss
             f_img = self.vgg16_f(Ia)
             f_img_hat = self.vgg16_f(Ia_hat)
             if self.config.lambda_G_perc > 0:
-                scalars['G/loss_rec_perc'] = self.config.lambda_G_perc * self.loss_P(f_img_hat, f_img)
+                self.scalars['G/loss_rec_perc'] = self.config.lambda_G_perc * self.loss_P(f_img_hat, f_img)
                 g_loss_rec += scalars['G/loss_rec_perc']
             if self.config.lambda_G_style > 0:
-                scalars['G/loss_rec_style'] = self.config.lambda_G_style * self.loss_S(f_img_hat, f_img)
+                self.scalars['G/loss_rec_style'] = self.config.lambda_G_style * self.loss_S(f_img_hat, f_img)
                 g_loss_rec += scalars['G/loss_rec_style']
         return g_loss_rec
     def angular_reconstruction_loss(self, normals, normals_hat):

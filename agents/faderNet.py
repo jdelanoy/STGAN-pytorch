@@ -118,27 +118,37 @@ class FaderNet(TrainingModule):
 
     def create_interpolated_attr(self, c_org, selected_attrs=None,max_val=5.0):
         """Generate target domain labels for debugging and testing: linearly sample attribute"""
-        c_trg_list = [c_org]
+        all_lists=[]
         for i in range(len(selected_attrs)):
+            c_trg_list = [c_org]
             alphas = [-max_val, -((max_val-1)/2.0+1), -1,-0.5,0,0.5,1,((max_val-1)/2.0+1), max_val]
             #alphas = np.linspace(-max_val, max_val, 10)
             for alpha in alphas:
                 c_trg = c_org.clone()
                 c_trg[:, i] = torch.full_like(c_trg[:, i],alpha) 
                 c_trg_list.append(c_trg)
-        return c_trg_list
+            all_lists.append(c_trg_list)
+        return all_lists
 
 
 
     def compute_sample_grid(self,batch,max_val,path=None,writer=False):
         self.batch_Ia, self.batch_normals, self.batch_illum, self.batch_a_att = batch
-        c_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=max_val)
+        all_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=max_val)
 
-        x_fake_list = self.init_sample_grid()
-        for c_trg_sample in c_sample_list:
-            fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
-            write_labels_on_images(fake_image,c_trg_sample)
-            x_fake_list.append(fake_image)
+        all_images=[]
+        for c_sample_list in all_sample_list:
+            x_fake_list = self.init_sample_grid()
+            for c_trg_sample in c_sample_list:
+                fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
+                write_labels_on_images(fake_image,c_trg_sample)
+                x_fake_list.append(fake_image)
+            all_images.append(x_fake_list)
+        #interleave the images for each attribute
+        size = all_images[0][0].shape
+        x_fake_list = []
+        for col in range(len(all_images[0])):
+            x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
         x_concat = torch.cat(x_fake_list, dim=3)
         image = tvutils.make_grid(denorm(x_concat), nrow=1)
         if writer:
@@ -198,14 +208,14 @@ class FaderNet(TrainingModule):
             # d_loss_adv_gp = self.config.lambda_gp * self.gradient_penalty(out_disc, x_hat)
             #full GAN loss
             d_loss = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
-            self.scalars['D/loss_real'] = d_loss_adv_real
-            self.scalars['D/loss_fake'] = d_loss_adv_fake
-            self.scalars['D/loss_gp'] = d_loss_adv_gp
+            self.scalars['D/loss_real'] = d_loss_adv_real.item()
+            self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
+            self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
 
             # backward and optimize
             self.optimize(self.optimizer_D,d_loss)
             # summarize
-            self.scalars['D/loss'] = d_loss
+            self.scalars['D/loss'] = d_loss.item()
 
 
 
@@ -236,16 +246,16 @@ class FaderNet(TrainingModule):
         Ia_hat=self.decode(bneck,encodings,self.batch_a_att)
 
         #reconstruction loss
-        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat,self.scalars)
+        g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat)
         g_loss = g_loss_rec
-        self.scalars['G/loss_rec'] = g_loss_rec
+        self.scalars['G/loss_rec'] = g_loss_rec.item()
 
         #latent discriminator for attribute
         if self.config.use_latent_disc:
             out_att = self.LD(bneck)
             g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, self.batch_a_att)
             g_loss += g_loss_latent
-            self.scalars['G/loss_latent'] = g_loss_latent
+            self.scalars['G/loss_latent'] = g_loss_latent.item()
 
         if self.config.use_image_disc:
             b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
@@ -256,12 +266,12 @@ class FaderNet(TrainingModule):
             g_loss_adv = self.config.lambda_adv * self.criterionGAN(out_disc, True)
             #g_loss_adv = - self.config.lambda_adv * torch.mean(out_disc)
             g_loss += g_loss_adv
-            self.scalars['G/loss_adv'] = g_loss_adv
+            self.scalars['G/loss_adv'] = g_loss_adv.item()
 
         # backward and optimize
         self.optimize(self.optimizer_G,g_loss)
         # summarize
-        self.scalars['G/loss'] = g_loss
+        self.scalars['G/loss'] = g_loss.item()
         return self.scalars
 
     def validating_step(self, batch):
