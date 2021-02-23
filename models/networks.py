@@ -206,7 +206,7 @@ class FaderNetGeneratorWithNormalsAndIllum(Unet):
         norm='batch'
         bias = norm == 'none' 
         #series of convolutions for the illum
-        enc_layer=[ConvReluBn(nn.Conv2d(4, 6, 3, 1, 1,bias=bias),activation,normalization=norm),
+        enc_layer=[ConvReluBn(nn.Conv2d(self.attr_dim+3, 6, 3, 1, 1,bias=bias),activation,normalization=norm),
                 ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=norm),
                 ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=norm)] 
         self.illum_conv = (nn.Sequential(*enc_layer))

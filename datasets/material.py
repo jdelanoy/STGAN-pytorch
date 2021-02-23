@@ -214,8 +214,11 @@ class MaterialDataset(data.Dataset):
                 illum = extract_highlights(image)
                 illum=np.concatenate([illum,illum,illum],axis=2) #3channels?
             else:
-                illum = cv2.cvtColor(illum, cv2.COLOR_BGR2RGB) #or cv2.COLOR_BGR2GRAY
-                #illum = illum[:,:,np.newaxis] #image is already B&W
+                if illum.ndim == 3: #RGB image
+                    illum = cv2.cvtColor(illum, cv2.COLOR_BGR2RGB) #or cv2.COLOR_BGR2GRAY
+                else:
+                    illum = illum[:,:,np.newaxis] #image is already B&W
+                    illum=np.concatenate([illum,illum,illum],axis=2) 
         else:
             illum=torch.Tensor()
 
