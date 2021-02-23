@@ -63,7 +63,7 @@ class GANLoss(nn.Module):
         return loss
 
     @staticmethod
-    def cal_gradient_penalty(netD, real_data, fake_data, device, type='mixed', constant=1.0, lambda_gp=10.0):
+    def cal_gradient_penalty(netD, real_data, fake_data, att, device, type='mixed', constant=1.0, lambda_gp=10.0):
         """Calculate the gradient penalty loss, used in WGAN-GP paper https://arxiv.org/abs/1704.00028
         Arguments:
             netD (network)              -- discriminator network
@@ -87,7 +87,7 @@ class GANLoss(nn.Module):
             else:
                 raise NotImplementedError('{} not implemented'.format(type))
             interpolatesv.requires_grad_(True)
-            disc_interpolates = netD(interpolatesv)
+            disc_interpolates = netD(interpolatesv,att)
             gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolatesv,
                                             grad_outputs=torch.ones(disc_interpolates.size()).to(device),
                                             create_graph=True, retain_graph=True, only_inputs=True)

@@ -295,18 +295,46 @@ class Discriminator(nn.Module):
         c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.last_conv = ConvReluBn(nn.Conv2d(c_dim, 1, 4, 1, 1,bias=bias),activation,normalization)
 
-        # feature_size = image_size // 2**n_layers
-        # out_conv = min(max_dim,conv_dim * 2 ** (n_layers - 1))
-        # self.fc_adv = FC_layers(out_conv * feature_size ** 2,fc_dim,1,False)
-        #self.fc_att = FC_layers(out_conv * feature_size ** 2,fc_dim,attr_dim,True)
 
     def forward(self, x):
         y = self.conv(x)
         logit_adv = self.last_conv(y)
-        # y = y.view(y.size()[0], -1)
-        # logit_adv = self.fc_adv(y)
-        #logit_att = self.fc_att(y)
         return logit_adv
+
+class DiscriminatorWithAttr(nn.Module):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3, conv_dim=64, fc_dim=1024, n_layers=5):
+        super(DiscriminatorWithAttr, self).__init__()
+        #convolutions for image
+        layers=build_encoder_layers(conv_dim,n_layers, max_dim, im_channels, normalization='batch')
+        self.conv_img = nn.Sequential(*layers)
+
+        #linear features for attributes
+        layers = []
+        in_channels = attr_dim
+        out_channels = conv_dim
+        for i in range(n_layers):
+            layers.append(nn.Sequential(nn.Linear(in_channels, out_channels),
+                        nn.LeakyReLU(negative_slope=0.2, inplace=True)))
+            in_channels = out_channels
+            out_channels=min(2*out_channels,max_dim)
+        self.linear_attr = nn.Sequential(*layers)
+
+        activation='relu'
+        normalization='batch'
+        bias = normalization == 'none'
+        c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
+        self.last_conv = nn.Sequential(ConvReluBn(nn.Conv2d(c_dim*2, c_dim, 1, 1, 0,bias=bias),activation,normalization),
+                                        ConvReluBn(nn.Conv2d(c_dim, 1, 4, 1, 1,bias=bias),activation,normalization))
+
+
+    def forward(self, x, attr):
+        img_feat = self.conv_img(x)
+        attr_feat = self.linear_attr(attr)
+        attr_feat = attr_feat.unsqueeze(-1).unsqueeze(-1)
+        attr_feat = attr_feat.repeat(1,1, img_feat.size(2), img_feat.size(3))
+        logit_adv = self.last_conv(torch.cat((img_feat,attr_feat),dim=1))
+        return logit_adv
+
 
 
 
