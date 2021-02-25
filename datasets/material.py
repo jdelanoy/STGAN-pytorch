@@ -279,6 +279,7 @@ class MaterialDataLoader(object):
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
+            batch_size=53
             test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg, use_illum=use_illum)
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
