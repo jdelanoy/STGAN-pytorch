@@ -35,26 +35,30 @@ class UpAndConcat(nn.Module):
         x = torch.cat([x2, x1], dim=1)
         return x
 
-class BottleneckBlock(nn.Module):
+class ResidualBlock(nn.Module):
 
     def __init__(self, in_ch, out_ch, activation='relu', normalization='batch', bias=False):
-        super(BottleneckBlock, self).__init__()
+        super(ResidualBlock, self).__init__()
+        
+        self.convs=nn.Sequential( 
+            ConvReluBn(nn.Conv2d(in_ch, out_ch, 3, 1, 1,bias=bias),activation=activation,normalization=normalization),
+            nn.Conv2d(out_ch, out_ch, 3, 1, 1,bias=bias),
+            normalization_func(normalization)(out_ch)
+        )
 
         self.activate = activation_func(activation)
-        self.c1 = masked_conv3x3(in_ch, out_ch, bias=bias)
-        self.bn1 = normalization_func(normalization)(out_ch)
 
-        self.c2 = masked_conv3x3(out_ch, out_ch, bias=bias)
-        self.bn2 = normalization_func(normalization)(out_ch)
+    def forward(self, x, att=None):
+        if (att == None):
+            return self.activate(self.convs(x) + x)
+        else:
+            return forward_with_att(x, att)
 
-    def forward(self, x):
-        identity = x
-
-        x = self.activate(self.bn1(self.c1(x)))
-        x = self.bn2(self.c2(x))
-        x = self.activate(x + identity)
-        return x
-
+    def forward_with_att(self, x, att):
+        att = att.unsqueeze(-1).unsqueeze(-1)
+        att = att.repeat(1, 1, x.size(2), x.size(3))
+        fusion = torch.cat((x, att), dim=1)
+        return self.activate(self.convs(fusion) + x)
 
 class ConvReluBn(nn.Module):
     def __init__(self, conv_layer, activation='relu', normalization='batch'):
