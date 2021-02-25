@@ -293,7 +293,7 @@ class Discriminator(nn.Module):
         normalization='batch'
         bias = normalization == 'none'
         c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.last_conv = ConvReluBn(nn.Conv2d(c_dim, 1, 4, 1, 1,bias=bias),activation,normalization)
+        self.last_conv = nn.Conv2d(c_dim, 1, 4, 1, 1)
 
 
     def forward(self, x):
@@ -324,7 +324,7 @@ class DiscriminatorWithAttr(nn.Module):
         bias = normalization == 'none'
         c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.last_conv = nn.Sequential(ConvReluBn(nn.Conv2d(c_dim*2, c_dim, 1, 1, 0,bias=bias),activation,normalization),
-                                        ConvReluBn(nn.Conv2d(c_dim, 1, 4, 1, 1,bias=bias),activation,normalization))
+                                        nn.Conv2d(c_dim, 1, 4, 1, 1))
 
 
     def forward(self, x, attr):
