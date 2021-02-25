@@ -48,17 +48,17 @@ class ResidualBlock(nn.Module):
 
         self.activate = activation_func(activation)
 
-    def forward(self, x, att=None):
-        if (att == None):
-            return self.activate(self.convs(x) + x)
-        else:
-            return forward_with_att(x, att)
-
     def forward_with_att(self, x, att):
         att = att.unsqueeze(-1).unsqueeze(-1)
         att = att.repeat(1, 1, x.size(2), x.size(3))
         fusion = torch.cat((x, att), dim=1)
         return self.activate(self.convs(fusion) + x)
+    def forward(self, x, att=None):
+        if (att == None):
+            return self.activate(self.convs(x) + x)
+        else:
+            return self.forward_with_att(x, att)
+
 
 class ConvReluBn(nn.Module):
     def __init__(self, conv_layer, activation='relu', normalization='batch'):
