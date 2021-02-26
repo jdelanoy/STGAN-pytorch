@@ -87,7 +87,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
-        if (i < add_normal_map): dec_in += 3
+        if (i-1 < add_normal_map): dec_in += 3 #there is one layer less than n_layers
         if (i < add_illum_map): dec_in += 6
 
 
@@ -155,7 +155,7 @@ class FaderNetGenerator(Unet):
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, attr)
+                out = reshape_and_concat(out, a)
             if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
@@ -198,12 +198,12 @@ class FaderNetGeneratorWithNormals(Unet):
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, attr)
+                out = reshape_and_concat(out, a)
             if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out=self.up(out)
-            if i >= self.n_layers-self.n_concat_normals:
+            if i >= self.n_layers-1-self.n_concat_normals:  #there is one layer less than n_layers
                 #add normal map to the last deconv
                 out = (torch.cat([out, normal_pyramid[i-(self.n_layers-1-self.n_concat_normals)]], dim=1))
             out = dec_layer(out)
@@ -247,9 +247,7 @@ class FaderNetGeneratorWithNormalsAndIllum(Unet):
         for block in self.bottleneck:
             bneck = block(bneck,a)
         # concat att to illum and convolve
-        size = illum.size(2)
-        attr = a.repeat((1,1, size, size))
-        illum = self.illum_conv(torch.cat([illum, attr], dim=1))
+        illum = self.illum_conv(reshape_and_concat(illum, a), dim=1))
         illum_pyramid=[illum]
         for i in range(self.n_concat_illum-1):
             illum_pyramid.insert(0,nn.functional.interpolate(illum_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
@@ -260,17 +258,17 @@ class FaderNetGeneratorWithNormalsAndIllum(Unet):
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, attr)
+                out = reshape_and_concat(out, a)
             if 0 < i <= self.skip_connections:
                 #do shortcut connection, not taking the first encoding (mat)
                 out = torch.cat([out, encodings[-(i+1)]], dim=1)
             out=self.up(out)
-            if i >= self.n_layers-self.n_concat_normals:
+            if i >= self.n_layers-1-self.n_concat_normals:
                 #add normal map to the last deconv
-                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-self.n_concat_normals)]], dim=1))
-            if i >= self.n_layers-self.n_concat_illum:
+                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-1-self.n_concat_normals)]], dim=1))
+            if i >= self.n_layers-1-self.n_concat_illum:
                 #add normal map to the last deconv
-                out = (torch.cat([out, illum_pyramid[i-(self.n_layers-self.n_concat_illum)]], dim=1))
+                out = (torch.cat([out, illum_pyramid[i-(self.n_layers-1-self.n_concat_illum)]], dim=1))
             out = dec_layer(out)
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
