@@ -53,7 +53,7 @@ class Encoder(nn.Module):
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.bottleneck = nn.ModuleList([ #only one block in Encoder, the 2 other in decoder
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-            #ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
+            ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
         ])
     #return [encodings,bneck]
     def encode(self,x):
@@ -88,8 +88,8 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
         if (i-1 < add_normal_map): dec_in += 3 #there is one layer less than n_layers
-        if (i < add_illum_map): dec_in += 6
-
+        if (i-1 < add_illum_map): dec_in += 6
+        print(i,dec_in)
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):
@@ -113,6 +113,12 @@ class Unet(nn.Module):
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like,normalization=normalization)
 
 
+    #adding the skip connection if needed
+    def add_skip_connection(self,i,out,encodings):
+        if 0 < i <= self.skip_connections:
+            out = torch.cat([out, encodings[-(i+1)]], dim=1)
+        return out
+
     #return [encodings,bneck]
     def encode(self,x):
         return self.encoder.encode(x)
@@ -120,8 +126,7 @@ class Unet(nn.Module):
     def decode(self, bneck, encodings):
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            if 0 < i <= self.skip_connections:
-                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = self.add_skip_connection(i,out,encodings)
             out = dec_layer(self.up(out))
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
@@ -145,20 +150,27 @@ class FaderNetGenerator(Unet):
         bias = normalization != 'batch'
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.bottleneck = nn.ModuleList([ #2 bottlenecks that will treat the attribute
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
+            #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
             ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
         ])
 
-    def decode(self, a, bneck, encodings):
+    #adding the attribute if needed
+    def add_attribute(self,i,out,a):
+        if i < self.n_attr_deconv:
+            out = reshape_and_concat(out, a)
+        return out
+    #go through decoder's bottleneck  (with attribute)
+    def decoder_bottlenck(self,bneck,a):
         for block in self.bottleneck:
             bneck = block(bneck,a)
+        return bneck
+
+    def decode(self, a, bneck, encodings):
+        bneck=self.decoder_bottlenck(bneck,a)
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, a)
-            if 0 < i <= self.skip_connections:
-                #do shortcut connection, not taking the first encoding (mat)
-                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = self.add_attribute(i,out,a)
+            out = self.add_skip_connection(i,out,encodings)
             out = dec_layer(self.up(out))
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
@@ -171,41 +183,38 @@ class FaderNetGenerator(Unet):
         return self.decode(a,z,encodings)
 
 
-class FaderNetGeneratorWithNormals(Unet):
+class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance'):
-        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,normalization)
-        self.attr_dim = attr_dim
-        self.n_attr_deconv = n_attr_deconv
+        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization)
         self.n_concat_normals = n_concat_normals
-        ##### change decoder : get attribute as input
+        ##### change decoder : get normal as input
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization)
-        #### bottlenecks
-        bias = normalization != 'batch'
-        b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ #2 bottlenecks that will treat the attribute
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-        ])
+
+
+    def prepare_pyramid(self,map,n_levels):
+        map_pyramid=[map]
+        for i in range(n_levels-1):
+            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
+        return map_pyramid
+
+
+    #adding the normal map at the right scale if needed
+    def add_multiscale_map(self,i,out,map_pyramid,n_levels):
+        if i >= self.n_layers-1-n_levels:  #there is one layer less than n_layers
+            out = (torch.cat([out, map_pyramid[i-(self.n_layers-1-n_levels)]], dim=1))
+        return out
 
     def decode(self, a, bneck, normals, encodings):
-        for block in self.bottleneck:
-            bneck = block(bneck,a)
-        #build pyramid of normals (should be directly provided in future version) => preconvolve them?
-        normal_pyramid=[normals]
-        for i in range(self.n_concat_normals-1):
-            normal_pyramid.insert(0,nn.functional.interpolate(normal_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
-        #expand dimensions of a
+        #prepare normals
+        normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
+        #go through net
+        bneck=self.decoder_bottlenck(bneck,a)
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, a)
-            if 0 < i <= self.skip_connections:
-                #do shortcut connection, not taking the first encoding (mat)
-                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = self.add_attribute(i,out,a)
+            out = self.add_skip_connection(i,out,encodings)
             out=self.up(out)
-            if i >= self.n_layers-1-self.n_concat_normals:  #there is one layer less than n_layers
-                #add normal map to the last deconv
-                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-1-self.n_concat_normals)]], dim=1))
+            out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = dec_layer(out)
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
@@ -218,22 +227,13 @@ class FaderNetGeneratorWithNormals(Unet):
         return self.decode(a,z,normals,encodings)
 
 
-class FaderNetGeneratorWithNormalsAndIllum(Unet):
+class FaderNetGeneratorWithNormalsAndIllum(FaderNetGeneratorWithNormals):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,n_concat_illum=1,normalization='instance'):
-        super(FaderNetGeneratorWithNormalsAndIllum, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,normalization)
-        self.attr_dim = attr_dim
-        self.n_attr_deconv = n_attr_deconv
-        self.n_concat_normals = n_concat_normals
+        super(FaderNetGeneratorWithNormalsAndIllum, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization)
+
         self.n_concat_illum = n_concat_illum
-        ##### change decoder : get attribute as input
+        ##### change decoder : add illum as input
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals, add_illum_map=self.n_concat_illum,normalization=normalization)
-        #### bottlenecks
-        bias = normalization != 'batch'
-        b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ #2 bottlenecks that will treat the attribute
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-        ])
 
         bias = norm == 'none' 
         #series of convolutions for the illum
@@ -241,34 +241,22 @@ class FaderNetGeneratorWithNormalsAndIllum(Unet):
                 ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=normalization),
                 ConvReluBn(nn.Conv2d(6, 6, 3, 1, 1,bias=bias),activation,normalization=normalization)] 
         self.illum_conv = (nn.Sequential(*enc_layer))
-  
+
 
     def decode(self, a, bneck, normals, illum, encodings):
-        for block in self.bottleneck:
-            bneck = block(bneck,a)
-        # concat att to illum and convolve
-        illum = self.illum_conv(reshape_and_concat(illum, a), dim=1))
-        illum_pyramid=[illum]
-        for i in range(self.n_concat_illum-1):
-            illum_pyramid.insert(0,nn.functional.interpolate(illum_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
-        #build pyramid of normals (should be directly provided in future version)
-        normal_pyramid=[normals]
-        for i in range(self.n_concat_normals-1):
-            normal_pyramid.insert(0,nn.functional.interpolate(normal_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
+        # prepapre illum and normals
+        illum = self.illum_conv(reshape_and_concat(illum, a), dim=1)
+        illum_pyramid = self.prepare_pyramid(illum,self.n_concat_illum)
+        normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
+        #go through decoder
+        bneck=self.decoder_bottlenck(bneck,a)
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            if i < self.n_attr_deconv:
-                out = reshape_and_concat(out, a)
-            if 0 < i <= self.skip_connections:
-                #do shortcut connection, not taking the first encoding (mat)
-                out = torch.cat([out, encodings[-(i+1)]], dim=1)
+            out = self.add_attribute(i,out,a)
+            out = self.add_skip_connection(i,out,encodings)
             out=self.up(out)
-            if i >= self.n_layers-1-self.n_concat_normals:
-                #add normal map to the last deconv
-                out = (torch.cat([out, normal_pyramid[i-(self.n_layers-1-self.n_concat_normals)]], dim=1))
-            if i >= self.n_layers-1-self.n_concat_illum:
-                #add normal map to the last deconv
-                out = (torch.cat([out, illum_pyramid[i-(self.n_layers-1-self.n_concat_illum)]], dim=1))
+            out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
+            out = self.add_multiscale_map(i,out,illum_pyramid,self.n_concat_illum)
             out = dec_layer(out)
         x = self.last_conv(out) #TODO old archi
         x = torch.tanh(x)
