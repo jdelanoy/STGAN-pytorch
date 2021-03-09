@@ -54,6 +54,9 @@ class Encoder(nn.Module):
         self.bottleneck = nn.ModuleList([ #only one block in Encoder, the 2 other in decoder
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
+            ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
+            #ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
+            #ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
         ])
     #return [encodings,bneck]
     def encode(self,x):
@@ -89,7 +92,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if (i==0): dec_out=conv_dim // 4 
         if (i-1 < add_normal_map): dec_in += 3 #there is one layer less than n_layers
         if (i-1 < add_illum_map): dec_in += 6
-        print(i,dec_in)
+        #print(i,dec_in)
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):
@@ -151,7 +154,7 @@ class FaderNetGenerator(Unet):
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
         self.bottleneck = nn.ModuleList([ #2 bottlenecks that will treat the attribute
             #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-            ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
+            #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
         ])
 
     #adding the attribute if needed
@@ -285,12 +288,15 @@ class Latent_Discriminator(nn.Module):
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3) #TODO act
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
-
-        out_conv = 4*min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
+        self.pool = nn.AvgPool2d(2)
+        out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
     def forward(self, x):
         y = self.conv(x)
+        #print(y.size())
+        y = self.pool(y)
+        #print(y.size())
         y = y.view(y.size()[0], -1)
         logit_att = self.fc_att(y)
         return logit_att
