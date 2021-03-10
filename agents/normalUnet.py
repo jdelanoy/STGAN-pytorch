@@ -109,14 +109,6 @@ class NormalUnet(TrainingModule):
         Ia_3ch = Ia[:,:3]
         normals = normals.to(self.device)
 
-        # print(Ia[:,:,0,0])
-        # print(Ia[:,:,64,64])
-        # images = torch.cat((Ia,normals), dim=-1)
-        # print(images.shape)
-        # img_log = tvutils.make_grid(denorm(images), nrow=1)
-        # tvutils.save_image(img_log,os.path.join(self.config.sample_dir, 'train_{}.png'.format(self.current_iteration)))
-        #tvutils.save_image(tvutils.make_grid(Ia[:,3:], nrow=1),os.path.join(self.config.sample_dir, 'train_mask{}.png'.format(self.current_iteration)))
-
         scalars = {}
         # ================================================================================= #
         #                           2. Train the discriminator                              #

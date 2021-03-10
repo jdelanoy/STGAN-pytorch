@@ -161,13 +161,7 @@ class TrainingModule(object):
         for batch in range(start_batch, self.config.max_epoch):
             tdqm_post["Time"]=str(datetime.timedelta(seconds=time.time() - start_time))[:-7]
             tqdm_loader = tqdm(self.data_loader.train_loader, total=self.data_loader.train_iterations, desc='Batch {}'.format(batch),postfix=tdqm_post,leave=(batch==self.config.max_epoch-1))
-            # for it in range(self.data_loader.train_iterations): #tdqm
-            #     # fetch data
-            #     try:
-            #         train_data = next(data_iter)
-            #     except:
-            #         data_iter = iter(self.data_loader.train_loader)
-            #         train_data = next(data_iter)
+
             for train_data in tqdm_loader: #tdqm
 
                 #train
