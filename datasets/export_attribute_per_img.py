@@ -18,23 +18,22 @@ def parse_args(required=True):
     return parser.parse_args()
 
 def add_image_to_dataset(im,all_scores,attributes,outfile, has_gt_attr):
-
     im_name=im.split("/")[-1]
     dset=im.split("/")[-2]
     #get the name of the material + write
-    name = im_name.split('@')[0].replace("_","")
-    #print(im_name,name)
+    name = im_name.split('@')[-2].replace("-","")
+    name = name.replace("_","")
+    print(im_name,name)
 #    print(im,name)
-    if(has_gt_attr):
-        if(name in all_scores['material_name']):
-            outfile.write(dset+"/"+im_name+"\t")
-            #get the scores + write
-            index=all_scores['material_name'].index(name)
-            for att in attributes:
-                outfile.write(str(float(all_scores[att][index])))
-                outfile.write('\t')
-            outfile.write('\n')
-    else:
+    if(name in all_scores['material_name']):
+        outfile.write(dset+"/"+im_name+"\t")
+        #get the scores + write
+        index=all_scores['material_name'].index(name)
+        for att in attributes:
+            outfile.write(str(float(all_scores[att][index])))
+            outfile.write('\t')
+        outfile.write('\n')
+    elif(not has_gt_attr):
         outfile.write(dset+"/"+im_name+"\t")
         #get the scores + write
         for att in attributes:
@@ -68,6 +67,7 @@ def main():
     #get the list of images
     print(os.path.join(args.image_path,"renderings",args.dataset,"*"))
     images = np.sort(glob.glob(os.path.join(args.image_path,"renderings",args.dataset,"*")))
+    print(images)
     print(len(images))
     #use gt attributes only if train dataset
     for im in images:
