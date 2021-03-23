@@ -66,10 +66,12 @@ class Encoder(nn.Module):
             x = block(x)
             x_encoder.append(x)
 
+        bn=[]
         # Bottleneck
         for block in self.bottleneck:
             x = block(x)
-        return x_encoder, x
+            bn.append(x)
+        return x_encoder, x, bn
 
 def reshape_and_concat(feat,a):
     a = a.unsqueeze(-1).unsqueeze(-1)
@@ -138,7 +140,7 @@ class Unet(nn.Module):
 
     def forward(self, x):
         # propagate encoder layers
-        encodings,z = self.encode(x)
+        encodings,z,_ = self.encode(x)
         return self.decode(z,encodings)
 
 
@@ -182,7 +184,7 @@ class FaderNetGenerator(Unet):
 
     def forward(self, x,a):
         # propagate encoder layers
-        encodings,z = self.encode(x)
+        encodings,z,_ = self.encode(x)
         return self.decode(a,z,encodings)
 
 
@@ -226,7 +228,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
     def forward(self, x,a,normals):
         # propagate encoder layers
-        encodings,z = self.encode(x)
+        encodings,z,_ = self.encode(x)
         return self.decode(a,z,normals,encodings)
 
 
@@ -287,12 +289,16 @@ class Latent_Discriminator(nn.Module):
         layers = []
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3) #TODO act
+        #change first conv to get 3 times bigger input
+        layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
+
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
         self.pool = nn.AvgPool2d(2)
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
-    def forward(self, x):
+    def forward(self, x, bn_list):
+        x=torch.cat(bn_list,dim=1)
         y = self.conv(x)
         #print(y.size())
         y = self.pool(y)
