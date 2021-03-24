@@ -105,7 +105,7 @@ class FaderNet(TrainingModule):
     def encode(self):
         return self.G.encode(self.batch_Ia)
     def forward(self,new_attr=None):
-        encodings,z = self.encode()
+        encodings,z,_ = self.encode()
         if new_attr != None: att=new_attr
         else: att = self.batch_a_att
         return self.decode(z,encodings,att)
@@ -171,10 +171,10 @@ class FaderNet(TrainingModule):
         self.G.eval()
         self.LD.train()
         # compute disc loss on encoded image
-        _,bneck = self.encode()
+        _,bneck,bn_list = self.encode()
 
         for _ in range(self.config.n_critic_ld):
-            out_att = self.LD(bneck)
+            out_att = self.LD(bneck,bn_list)
             #classification loss
             ld_loss = self.regression_loss(out_att, self.batch_a_att)*self.config.lambda_LD
             # backward and optimize
@@ -254,7 +254,7 @@ class FaderNet(TrainingModule):
         self.D.eval()
         self.LD.eval()
 
-        encodings,bneck = self.encode()
+        encodings,bneck,bn_list = self.encode()
         Ia_hat=self.decode(bneck,encodings,self.batch_a_att)
 
         #reconstruction loss
@@ -264,7 +264,7 @@ class FaderNet(TrainingModule):
 
         #latent discriminator for attribute
         if self.config.use_latent_disc:
-            out_att = self.LD(bneck)
+            out_att = self.LD(bneck,bn_list)
             g_loss_latent = -self.config.lambda_G_latent * self.regression_loss(out_att, self.batch_a_att)
             g_loss += g_loss_latent
             self.scalars['G/loss_latent'] = g_loss_latent.item()
