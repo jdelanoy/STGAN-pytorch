@@ -78,7 +78,7 @@ def reshape_and_concat(feat,a):
     attr = a.repeat((1,1, feat.size(2), feat.size(3)))
     return torch.cat([feat, attr], dim=1)
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=0, add_illum_map=0):
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0):
     bias = normalization != 'batch'
     decoder = nn.ModuleList()
     for i in reversed(range(1,n_layers)): #PIX2PIX do no put the very last intermediate convolutions
@@ -284,12 +284,13 @@ def FC_layers(in_dim,fc_dim,out_dim,tanh):
     return nn.Sequential(*layers)
 
 
+
 class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0,normalization='instance'):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3) #TODO act
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3)
         #change first conv to get 3 times bigger input
         layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
