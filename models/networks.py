@@ -43,7 +43,6 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3
     return layers
 
 
-
 class Encoder(nn.Module):
     def __init__(self, conv_dim, n_layers, max_dim, im_channels, vgg_like, activation='relu', normalization='batch'):
         super(Encoder, self).__init__()
@@ -72,6 +71,26 @@ class Encoder(nn.Module):
             x = block(x)
             bn.append(x)
         return x_encoder, x, bn
+
+
+
+
+
+def attribute_pre_treat(attr_dim,first_dim,max_dim,n_layers):
+    #linear features for attributes
+    layers = []
+    in_channels = attr_dim
+    out_channels = first_dim
+    for i in range(n_layers):
+        layers.append(nn.Sequential(nn.Linear(in_channels, out_channels),
+                    nn.LeakyReLU(negative_slope=0.2, inplace=True)))
+        in_channels = out_channels
+        out_channels=min(2*out_channels,max_dim)
+    return nn.Sequential(*layers)
+
+
+
+
 
 def reshape_and_concat(feat,a):
     a = a.unsqueeze(-1).unsqueeze(-1)
@@ -193,7 +212,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization)
         self.n_concat_normals = n_concat_normals
         ##### change decoder : get normal as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=3, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=3, attr_dim=32, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
+        self.attr_FC = attribute_pre_treat(attr_dim,32,32,2)
 
 
     def prepare_pyramid(self,map,n_levels):
@@ -210,6 +230,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         return out
 
     def decode(self, a, bneck, normals, encodings):
+        #prepare attr
+        a=self.attr_FC(a)
         #prepare normals
         normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
         #go through net
