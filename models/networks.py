@@ -7,7 +7,7 @@ from models.blocks import *
 
 
 def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, activation='relu', normalization='batch',dropout=0):
-    bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  #TODO old archi
+    bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  
     
     layers = []
     out_channels = conv_dim
@@ -22,7 +22,7 @@ def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, a
     return layers
 
 def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',vgg_like=0,dropout=0):
-    bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  #TODO old archi
+    bias = normalization != 'batch'  # use bias only if we do not use a normalization layer 
     kernel_sizes=[4,4,4,4,4,4,4,4,4] 
     kernel_sizes=[7,3,3,3,3,3,3,3]
     
@@ -31,10 +31,10 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if i>0 else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #stride 1 in first conv
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if i>0 else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
-            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
+            #enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
         if dropout > 0:
             enc_layer.append(nn.Dropout(dropout))
         layers.append(nn.Sequential(*enc_layer))
@@ -51,7 +51,7 @@ class Encoder(nn.Module):
         enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=normalization,activation=activation,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ #only one block in Encoder, the 2 other in decoder
+        self.bottleneck = nn.ModuleList([ 
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
             ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
@@ -78,10 +78,10 @@ def reshape_and_concat(feat,a):
     attr = a.repeat((1,1, feat.size(2), feat.size(3)))
     return torch.cat([feat, attr], dim=1)
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='relu', normalization='batch', add_normal_map=0, add_illum_map=0):
-    bias = normalization != 'batch'  #TODO old archi
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0):
+    bias = normalization != 'batch'
     decoder = nn.ModuleList()
-    for i in reversed(range(1,n_layers)): #do no put the very last intermediate convolutions
+    for i in reversed(range(1,n_layers)): #PIX2PIX do no put the very last intermediate convolutions
         #size of inputs/outputs
         dec_out = min(max_dim,conv_dim * 2 ** (i-1))
         dec_in = min(max_dim,conv_dim * 2 ** (i))
@@ -92,16 +92,16 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
-        if (i-1 < add_normal_map): dec_in += 3 #there is one layer less than n_layers
+        if (i-1 < add_normal_map): dec_in += 3 #PIX2PIX there is one layer less than n_layers
         if (i-1 < add_illum_map): dec_in += 6
         #print(i,dec_in)
 
-        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)] #TODO
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)]
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==0 and add_normal_map):
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
 
-    last_conv = nn.ConvTranspose2d(conv_dim, im_channels, 7, 1, 3, bias=True) ##last conv has kernel 7
+    last_conv = nn.ConvTranspose2d(conv_dim, im_channels, 7, 1, 3, bias=True) #PIX2PIX last conv has kernel 7, padding 3
     return decoder, last_conv
 
 
@@ -110,7 +110,7 @@ class Unet(nn.Module):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
-        self.up = nn.UpsamplingNearest2d(scale_factor=2) #nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) #TODO old archi
+        self.up = nn.UpsamplingNearest2d(scale_factor=2) 
 
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like,normalization=normalization)
@@ -133,7 +133,7 @@ class Unet(nn.Module):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_skip_connection(i,out,encodings)
             out = dec_layer(self.up(out))
-        x = self.last_conv(out) #TODO old archi
+        x = self.last_conv(out) 
         x = torch.tanh(x)
         x = x / torch.sqrt((x**2).sum(dim=1,keepdims=True))
         return x
@@ -154,7 +154,7 @@ class FaderNetGenerator(Unet):
         #### bottlenecks
         bias = normalization != 'batch'
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ #2 bottlenecks that will treat the attribute
+        self.bottleneck = nn.ModuleList([ #PIX2PIX bottlenecks that will treat the attribute
             #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
             #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
         ])
@@ -177,7 +177,7 @@ class FaderNetGenerator(Unet):
             out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
             out = dec_layer(self.up(out))
-        x = self.last_conv(out) #TODO old archi
+        x = self.last_conv(out) 
         x = torch.tanh(x)
 
         return x
@@ -193,7 +193,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization)
         self.n_concat_normals = n_concat_normals
         ##### change decoder : get normal as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=3, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
 
 
     def prepare_pyramid(self,map,n_levels):
@@ -205,8 +205,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
     #adding the normal map at the right scale if needed
     def add_multiscale_map(self,i,out,map_pyramid,n_levels):
-        if i >= self.n_layers-1-n_levels:  #there is one layer less than n_layers
-            out = (torch.cat([out, map_pyramid[i-(self.n_layers-1-n_levels)]], dim=1))
+        if i >= self.n_layers-1-n_levels:  #PIX2PIX there is one layer less than n_layers
+            out = (torch.cat([out, map_pyramid[i-(self.n_layers-1-n_levels)]], dim=1)) #PIX2PIX there is one layer less than n_layers
         return out
 
     def decode(self, a, bneck, normals, encodings):
@@ -218,10 +218,10 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
-            out=self.up(out)
+            out = self.up(out)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = dec_layer(out)
-        x = self.last_conv(out) #TODO old archi
+        x = self.last_conv(out)
         x = torch.tanh(x)
 
         return x
@@ -263,7 +263,7 @@ class FaderNetGeneratorWithNormalsAndIllum(FaderNetGeneratorWithNormals):
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = self.add_multiscale_map(i,out,illum_pyramid,self.n_concat_illum)
             out = dec_layer(out)
-        x = self.last_conv(out) #TODO old archi
+        x = self.last_conv(out)
         x = torch.tanh(x)
 
         return x
@@ -278,9 +278,11 @@ def FC_layers(in_dim,fc_dim,out_dim,tanh):
     layers=[nn.Linear(in_dim, fc_dim),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             nn.Linear(fc_dim, out_dim)]
+    layers=[nn.Linear(in_dim, out_dim)] #NEW only one FC
     if tanh:
         layers.append(nn.Tanh())
     return nn.Sequential(*layers)
+
 
 
 class Latent_Discriminator(nn.Module):
@@ -288,7 +290,7 @@ class Latent_Discriminator(nn.Module):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3) #TODO act
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3)
         #change first conv to get 3 times bigger input
         layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
@@ -300,9 +302,7 @@ class Latent_Discriminator(nn.Module):
     def forward(self, x, bn_list):
         x=torch.cat(bn_list,dim=1)
         y = self.conv(x)
-        #print(y.size())
         y = self.pool(y)
-        #print(y.size())
         y = y.view(y.size()[0], -1)
         logit_att = self.fc_att(y)
         return logit_att
