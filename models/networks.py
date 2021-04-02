@@ -338,44 +338,62 @@ class Discriminator(nn.Module):
         self.conv = nn.Sequential(*layers)
 
         c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.last_conv = nn.Conv2d(c_dim, 1, 4, 1, 1)
-
+        self.last_conv = nn.Conv2d(c_dim, 1, 4, 1, 1) #size of kernel: 1,3 or 4
 
     def forward(self, x):
         y = self.conv(x)
-        logit_adv = self.last_conv(y)
-        return logit_adv
+        logit_real = self.last_conv(y)
+        return logit_real
 
-class DiscriminatorWithAttr(nn.Module):
+class DiscriminatorWithMatchingAttr(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3, conv_dim=64, fc_dim=1024, n_layers=5,normalization='instance'):
-        super(DiscriminatorWithAttr, self).__init__()
+        super(DiscriminatorWithMatchingAttr, self).__init__()
         #convolutions for image
         layers=build_disc_layers(conv_dim,n_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu')
         self.conv_img = nn.Sequential(*layers)
 
+        c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
+        self.last_img_conv = nn.Conv2d(c_dim, 1, 4, 1, 1) #size of kernel: 1,3 or 4
+
         #linear features for attributes
-        layers = []
-        in_channels = attr_dim
-        out_channels = conv_dim
-        for i in range(n_layers):
-            layers.append(nn.Sequential(nn.Linear(in_channels, out_channels),
-                        nn.LeakyReLU(negative_slope=0.2, inplace=True)))
-            in_channels = out_channels
-            out_channels=min(2*out_channels,max_dim)
-        self.linear_attr = nn.Sequential(*layers)
+        n_layers_attr = 2
+        self.linear_attr = attribute_pre_treat(attr_dim,conv_dim,max_dim,n_layers_attr)
+        n_feat_attr = min(max_dim,conv_dim * 2 ** (n_layers_attr-1)) #or attr_dim if nor using linear_attr
 
         activation='leaky_relu'
         bias = normalization != 'batch'
         c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.last_conv = nn.Sequential(ConvReluBn(nn.Conv2d(c_dim*2, c_dim, 1, 1, 0,bias=bias),activation,normalization),
-                                        nn.Conv2d(c_dim, 1, 4, 1, 1))
-
+        self.last_conv = nn.Sequential(ConvReluBn(nn.Conv2d(c_dim+n_feat_attr, c_dim, 1, 1, 0,bias=bias),activation,normalization),
+                                        nn.Conv2d(c_dim, 1, 4, 1, 1)) #size of kernel: 1,3 or 4
 
     def forward(self, x, attr):
         img_feat = self.conv_img(x)
         attr_feat = self.linear_attr(attr)
-        logit_adv = self.last_conv(reshape_and_concat(img_feat,attr_feat))
-        return logit_adv
+        logit_matching = self.last_conv(reshape_and_concat(img_feat,attr_feat))
+        logit_real = self.last_img_conv(img_feat)
+        return logit_real, logit_matching
+
+
+class DiscriminatorWithClassifAttr(nn.Module):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3, conv_dim=64, fc_dim=1024, n_layers=5,normalization='instance'):
+        super(DiscriminatorWithClassifAttr, self).__init__()
+        #convolutions for image
+        layers=build_disc_layers(conv_dim,n_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu')
+        self.conv_img = nn.Sequential(*layers)
+
+        c_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
+        self.last_img_conv = nn.Conv2d(c_dim, 1, 4, 1, 1) #size of kernel: 1,3 or 4
+
+        self.pool = nn.AvgPool2d(int(image_size/(2**n_layers)))
+        self.fc_att = FC_layers(c_dim,fc_dim,attr_dim,True)
+
+    def forward(self, x):
+        img_feat = self.conv_img(x)
+        y = self.pool(img_feat)
+        y = y.view(y.size()[0], -1)
+        logit_att = self.fc_att(y)
+        logit_real = self.last_img_conv(img_feat)
+        return logit_real, logit_att
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 
 from datasets import *
-from models.networks import FaderNetGenerator, Discriminator, Latent_Discriminator, DiscriminatorWithAttr
+from models.networks import FaderNetGenerator, Discriminator, Latent_Discriminator, Discriminator, DiscriminatorWithClassifAttr, DiscriminatorWithMatchingAttr
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 from modules.GAN_loss import GANLoss
 from utils.im_util import denorm, write_labels_on_images
@@ -22,7 +22,12 @@ class FaderNet(TrainingModule):
 
         self.norm='instance'
         self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, normalization=self.norm)
-        self.D = DiscriminatorWithAttr(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
+        if self.config.GAN_style == 'vanilla':
+            self.D = Discriminator(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
+        elif self.config.GAN_style == 'matching':
+            self.D = DiscriminatorWithMatchingAttr(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
+        elif self.config.GAN_style == 'classif':
+            self.D = DiscriminatorWithClassifAttr(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
         self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like, normalization=self.norm)
         print(self.G)
         if self.config.use_image_disc:
@@ -187,12 +192,11 @@ class FaderNet(TrainingModule):
     def train_GAN_discriminator(self):
         self.G.eval()
         self.D.train()
-        use_attribute=True
         for _ in range(self.config.n_critic):
-            b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
             # fake image Ib_hat
-            Ib_hat = self.forward(b_att) #G(Ia, b_att)
-            if not use_attribute:
+            b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
+            Ib_hat = self.forward(b_att)
+            if self.config.GAN_style == 'vanilla': #simple image GAN
                 # real image is true
                 out_disc_real = self.D(self.batch_Ia[:,:3])
                 d_loss_adv_real = self.criterionGAN(out_disc_real, True)
@@ -200,30 +204,57 @@ class FaderNet(TrainingModule):
                 out_disc_fake = self.D(Ib_hat.detach())
                 d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
                 # compute loss for gradient penalty
-                d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp)
+                d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp, attribute=self.batch_a_att)
                 #full GAN loss
                 d_loss = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
                 self.scalars['D/loss_real'] = d_loss_adv_real.item()
                 self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
                 self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
-            else:
-                # real image with good attr is true
-                out_disc_real = self.D(self.batch_Ia[:,:3], self.batch_a_att)
+            elif self.config.GAN_style == 'matching': #GAN with matching attr + real/fake
+                # MATCHING real image with good attr is true
+                out_disc_real, out_match_real = self.D(self.batch_Ia[:,:3], self.batch_a_att)
+                d_loss_match_real = self.criterionGAN(out_match_real, True)
+                # MATCHING real image with bad attr is fake
+                _,out_match_fake_att = self.D(self.batch_Ia[:,:3],b_att)
+                d_loss_match_fake_att = self.criterionGAN(out_match_fake_att, False)
+                # real image is true
                 d_loss_adv_real = self.criterionGAN(out_disc_real, True)
-                # real image with bad attr is fake
-                out_disc_fake_att = self.D(self.batch_Ia[:,:3],b_att)
-                d_loss_adv_fake_att = self.criterionGAN(out_disc_fake_att, False)
-                #fake image  with its attr is fake
-                out_disc_fake_img = self.D(Ib_hat.detach(),b_att)
-                d_loss_adv_fake_img = self.criterionGAN(out_disc_fake_img, False)
+                # MATCHING fake image  with its attr is fake
+                out_disc_fake, out_match_fake_img = self.D(Ib_hat.detach(),b_att)
+                d_loss_match_fake_img = self.criterionGAN(out_match_fake_img, False)
+                # fake image is false
+                d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
                 # compute loss for gradient penalty
-                d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat, self.batch_a_att,self.device,lambda_gp=self.config.lambda_gp)
+                d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat, self.batch_a_att,self.device,lambda_gp=self.config.lambda_gp, attribute=self.batch_a_att)
                 #full GAN loss
-                d_loss = d_loss_adv_real + 0.5*d_loss_adv_fake_att + 0.5*d_loss_adv_fake_img + d_loss_adv_gp
+                d_loss_adv=d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
+                d_loss_match = d_loss_match_real + 0.5*d_loss_match_fake_att + 0.5*d_loss_match_fake_img
+                d_loss = self.config.d_lamdba_adv * d_loss_adv + self.config.d_lambda_match * d_loss_match
+                self.scalars['D/loss_match_real'] = d_loss_match_real.item()
+                self.scalars['D/loss_match_fake_att'] = d_loss_match_fake_att.item()
+                self.scalars['D/loss_match_fake_img'] = d_loss_match_fake_img.item()
                 self.scalars['D/loss_real'] = d_loss_adv_real.item()
-                self.scalars['D/loss_fake_att'] = d_loss_adv_fake_att.item()
-                self.scalars['D/loss_fake_img'] = d_loss_adv_fake_img.item()
+                self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
                 self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
+            elif self.config.GAN_style == 'classif': #GAN with classif attr + real/fake
+                # real image is true
+                out_disc_real, out_classif = self.D(self.batch_Ia[:,:3])
+                d_loss_adv_real = self.criterionGAN(out_disc_real, True)
+                #learn to classify
+                d_loss_classif = self.regression_loss(out_classif,self.batch_a_att)
+                #fake image
+                out_disc_fake, _ = self.D(Ib_hat.detach())
+                d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
+                # compute loss for gradient penalty
+                d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp, attribute=self.batch_a_att)
+                #full GAN loss
+                d_loss_adv = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
+                d_loss = self.config.d_lamdba_adv * d_loss_adv + self.config.d_lambda_classif * d_loss_classif
+                self.scalars['D/loss_real'] = d_loss_adv_real.item()
+                self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
+                self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
+                self.scalars['D/loss_classif'] = d_loss_classif.item()
+
             # backward and optimize
             self.optimize(self.optimizer_D,d_loss)
             # summarize
@@ -273,9 +304,17 @@ class FaderNet(TrainingModule):
             b_att =  torch.rand_like(self.batch_a_att)*2-1.0 
             # original-to-target domain : Ib_hat -> GAN + classif
             Ib_hat = self.forward(b_att)
-            out_disc = self.D(Ib_hat,b_att)
+            if self.config.GAN_style == 'vanilla':
+                out_disc = self.D(Ib_hat)
+                g_loss_adv = self.criterionGAN(out_disc, True)
+            elif self.config.GAN_style == 'matching':
+                out_disc, out_match = self.D(Ib_hat,b_att)
+                g_loss_adv = self.criterionGAN(out_disc, True) + self.criterionGAN(out_match, True)
+            elif self.config.GAN_style == 'classif':
+                out_disc, out_classif = self.D(Ib_hat)
+                g_loss_adv = self.criterionGAN(out_disc, True) + self.regression_loss(out_classif, b_att)
             # GAN loss
-            g_loss_adv = self.config.lambda_adv * self.criterionGAN(out_disc, True)
+            g_loss_adv = self.config.lambda_adv * g_loss_adv
             g_loss += g_loss_adv
             self.scalars['G/loss_adv'] = g_loss_adv.item()
 
