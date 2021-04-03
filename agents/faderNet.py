@@ -306,16 +306,24 @@ class FaderNet(TrainingModule):
             Ib_hat = self.forward(b_att)
             if self.config.GAN_style == 'vanilla':
                 out_disc = self.D(Ib_hat)
-                g_loss_adv = self.criterionGAN(out_disc, True)
+                loss_adv=self.criterionGAN(out_disc, True)
+                g_loss_adv = loss_adv
             elif self.config.GAN_style == 'matching':
                 out_disc, out_match = self.D(Ib_hat,b_att)
-                g_loss_adv = self.criterionGAN(out_disc, True) + self.criterionGAN(out_match, True)
+                loss_adv=self.criterionGAN(out_disc, True)
+                loss_match = self.criterionGAN(out_match, True)
+                g_loss_adv = loss_adv + loss_match
+                self.scalars['G/loss_adv_match'] = loss_match.item()
             elif self.config.GAN_style == 'classif':
                 out_disc, out_classif = self.D(Ib_hat)
-                g_loss_adv = self.criterionGAN(out_disc, True) + self.regression_loss(out_classif, b_att)
+                loss_adv=self.criterionGAN(out_disc, True)
+                loss_classif = self.regression_loss(out_classif, b_att)
+                g_loss_adv = loss_adv + loss_classif
+                self.scalars['G/loss_adv_classif'] = loss_classif.item()
             # GAN loss
             g_loss_adv = self.config.lambda_adv * g_loss_adv
             g_loss += g_loss_adv
+            self.scalars['G/loss_adv_img'] = loss_adv.item()
             self.scalars['G/loss_adv'] = g_loss_adv.item()
 
         # backward and optimize
