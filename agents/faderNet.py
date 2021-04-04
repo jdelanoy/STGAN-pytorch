@@ -241,7 +241,7 @@ class FaderNet(TrainingModule):
                 out_disc_real, out_classif = self.D(self.batch_Ia[:,:3])
                 d_loss_adv_real = self.criterionGAN(out_disc_real, True)
                 #learn to classify
-                d_loss_classif = self.regression_loss(out_classif,self.batch_a_att)
+                d_loss_classif = self.config.d_lambda_classif * self.regression_loss(out_classif,self.batch_a_att)
                 #fake image
                 out_disc_fake, _ = self.D(Ib_hat.detach())
                 d_loss_adv_fake = self.criterionGAN(out_disc_fake, False)
@@ -249,7 +249,7 @@ class FaderNet(TrainingModule):
                 d_loss_adv_gp = GANLoss.cal_gradient_penalty(self.D,self.batch_Ia[:,:3],Ib_hat,self.device,lambda_gp=self.config.lambda_gp, attribute=self.batch_a_att)
                 #full GAN loss
                 d_loss_adv = d_loss_adv_real + d_loss_adv_fake + d_loss_adv_gp
-                d_loss = self.config.d_lamdba_adv * d_loss_adv + self.config.d_lambda_classif * d_loss_classif
+                d_loss = self.config.d_lamdba_adv * d_loss_adv + d_loss_classif
                 self.scalars['D/loss_real'] = d_loss_adv_real.item()
                 self.scalars['D/loss_fake'] = d_loss_adv_fake.item()
                 self.scalars['D/loss_gp'] = d_loss_adv_gp.item()
@@ -306,22 +306,21 @@ class FaderNet(TrainingModule):
             Ib_hat = self.forward(b_att)
             if self.config.GAN_style == 'vanilla':
                 out_disc = self.D(Ib_hat)
-                loss_adv=self.criterionGAN(out_disc, True)
+                loss_adv=self.config.lambda_adv*self.criterionGAN(out_disc, True)
                 g_loss_adv = loss_adv
             elif self.config.GAN_style == 'matching':
                 out_disc, out_match = self.D(Ib_hat,b_att)
-                loss_adv=self.criterionGAN(out_disc, True)
-                loss_match = self.criterionGAN(out_match, True)
+                loss_adv=self.config.lambda_adv*self.criterionGAN(out_disc, True)
+                loss_match = self.config.lambda_adv*self.criterionGAN(out_match, True)
                 g_loss_adv = loss_adv + loss_match
                 self.scalars['G/loss_adv_match'] = loss_match.item()
             elif self.config.GAN_style == 'classif':
                 out_disc, out_classif = self.D(Ib_hat)
-                loss_adv=self.criterionGAN(out_disc, True)
-                loss_classif = self.regression_loss(out_classif, b_att)
+                loss_adv=self.config.lambda_adv*self.criterionGAN(out_disc, True)
+                loss_classif = 2*self.regression_loss(out_classif, b_att)
                 g_loss_adv = loss_adv + loss_classif
                 self.scalars['G/loss_adv_classif'] = loss_classif.item()
             # GAN loss
-            g_loss_adv = self.config.lambda_adv * g_loss_adv
             g_loss += g_loss_adv
             self.scalars['G/loss_adv_img'] = loss_adv.item()
             self.scalars['G/loss_adv'] = g_loss_adv.item()
