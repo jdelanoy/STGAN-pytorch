@@ -6,6 +6,9 @@ import numpy as np
 from models.blocks import * 
 
 
+VERSION="pix2pixHD" #"pix2pixHD"
+
+
 def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, activation='relu', normalization='batch',dropout=0):
     bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  
     
@@ -23,15 +26,15 @@ def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, a
 
 def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',vgg_like=0,dropout=0):
     bias = normalization != 'batch'  # use bias only if we do not use a normalization layer 
-    kernel_sizes=[4,4,4,4,4,4,4,4,4] 
-    kernel_sizes=[7,3,3,3,3,3,3,3]
+    if VERSION == "faderNet" : kernel_sizes=[4,4,4,4,4,4,4,4,4] 
+    else : kernel_sizes=[7,3,3,3,3,3,3,3]
     
     layers = []
     in_channels = im_channels
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if i>0 else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if (i>0 or VERSION == "faderNet") else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
             #enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
@@ -50,13 +53,8 @@ class Encoder(nn.Module):
         enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=normalization,activation=activation,vgg_like=vgg_like) 
         self.encoder = nn.ModuleList(enc_layers)
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ 
-            ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-            ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-            ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-            #ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-            #ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias),
-        ])
+        n_bottlenecks = 2 if VERSION == "faderNet" else 3 #adapt depending on n_layers? or parameter?
+        self.bottleneck = nn.ModuleList([ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias) for i in range(n_bottlenecks)])
     #return [encodings,bneck]
     def encode(self,x):
         # Encoder
@@ -97,10 +95,11 @@ def reshape_and_concat(feat,a):
     attr = a.repeat((1,1, feat.size(2), feat.size(3)))
     return torch.cat([feat, attr], dim=1)
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0):
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0): #NEW leaky_relu by default
     bias = normalization != 'batch'
     decoder = nn.ModuleList()
-    for i in reversed(range(1,n_layers)): #PIX2PIX do no put the very last intermediate convolutions
+    shift = 0 if VERSION == "faderNet" else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
+    for i in reversed(range(shift,n_layers)): 
         #size of inputs/outputs
         dec_out = min(max_dim,conv_dim * 2 ** (i-1))
         dec_in = min(max_dim,conv_dim * 2 ** (i))
@@ -111,8 +110,8 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==0): dec_out=conv_dim // 4 
-        if (i-1 < add_normal_map): dec_in += 3 #PIX2PIX there is one layer less than n_layers
-        if (i-1 < add_illum_map): dec_in += 6
+        if (i-shift < add_normal_map): dec_in += 3 #PIX2PIX there is one layer less than n_layers
+        if (i-shift < add_illum_map): dec_in += 6
         #print(i,dec_in)
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)]
@@ -120,7 +119,8 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
 
-    last_conv = nn.ConvTranspose2d(conv_dim, im_channels, 7, 1, 3, bias=True) #PIX2PIX last conv has kernel 7, padding 3
+    last_kernel= 3 if VERSION == "faderNet" else 7
+    last_conv = nn.ConvTranspose2d(dec_out, im_channels, last_kernel, 1, last_kernel//2, bias=True) #PIX2PIX last conv has kernel 7, padding 3
     return decoder, last_conv
 
 
@@ -173,10 +173,8 @@ class FaderNetGenerator(Unet):
         #### bottlenecks
         bias = normalization != 'batch'
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        self.bottleneck = nn.ModuleList([ #PIX2PIX bottlenecks that will treat the attribute
-            #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-            #ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias),
-        ])
+        n_bottlenecks = 0 #bottlenecks that treat the attribute
+        self.bottleneck = nn.ModuleList([ ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias)  for i in range(n_bottlenecks)])
 
     #adding the attribute if needed
     def add_attribute(self,i,out,a):
@@ -212,7 +210,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization)
         self.n_concat_normals = n_concat_normals
         ##### change decoder : get normal as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=3, attr_dim=32, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if VERSION == "faderNet" else 32, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
         self.attr_FC = attribute_pre_treat(attr_dim,32,32,2)
 
 
@@ -225,13 +223,14 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
     #adding the normal map at the right scale if needed
     def add_multiscale_map(self,i,out,map_pyramid,n_levels):
-        if i >= self.n_layers-1-n_levels:  #PIX2PIX there is one layer less than n_layers
-            out = (torch.cat([out, map_pyramid[i-(self.n_layers-1-n_levels)]], dim=1)) #PIX2PIX there is one layer less than n_layers
+        shift = 0 if VERSION == "faderNet" else 1 #PIX2PIX there is one layer less than n_layers
+        if i >= self.n_layers-shift-n_levels: 
+            out = (torch.cat([out, map_pyramid[i-(self.n_layers-shift-n_levels)]], dim=1)) 
         return out
 
     def decode(self, a, bneck, normals, encodings):
         #prepare attr
-        a=self.attr_FC(a)
+        if VERSION != "faderNet": a=self.attr_FC(a)
         #prepare normals
         normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
         #go through net
@@ -297,10 +296,12 @@ class FaderNetGeneratorWithNormalsAndIllum(FaderNetGeneratorWithNormals):
 
 
 def FC_layers(in_dim,fc_dim,out_dim,tanh):
-    layers=[nn.Linear(in_dim, fc_dim),
+    if VERSION == "faderNet":
+        layers=[nn.Linear(in_dim, fc_dim),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
             nn.Linear(fc_dim, out_dim)]
-    layers=[nn.Linear(in_dim, out_dim)] #NEW only one FC
+    else:
+        layers=[nn.Linear(in_dim, out_dim)] #NEW only one FC
     if tanh:
         layers.append(nn.Tanh())
     return nn.Sequential(*layers)
@@ -313,16 +314,18 @@ class Latent_Discriminator(nn.Module):
         layers = []
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3)
-        #change first conv to get 3 times bigger input
-        layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
+        #NEW change first conv to get 3 times bigger input 
+        if VERSION != "faderNet":
+            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
-        self.pool = nn.AvgPool2d(2)
+        self.pool = nn.AvgPool2d(1 if VERSION == "faderNet" else 2)
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
     def forward(self, x, bn_list):
-        x=torch.cat(bn_list,dim=1)
+        if VERSION != "faderNet":
+            x=torch.cat(bn_list,dim=1)
         y = self.conv(x)
         y = self.pool(y)
         y = y.view(y.size()[0], -1)

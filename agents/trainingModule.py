@@ -189,7 +189,7 @@ class TrainingModule(object):
                 # save checkpoint
                 if self.current_iteration % self.config.checkpoint_step == 0:
                     self.save_checkpoint()
-
+        self.save_checkpoint()
 
     def test(self):
         self.load_checkpoint()
