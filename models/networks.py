@@ -7,8 +7,11 @@ from models.blocks import *
 
 
 VERSION="faderNet" #"pix2pixHD"
+#all options are supposed to be true for new archi, false for faderNet
 FIRST_KERNEL=True #first bigger kernel with stride 1
 PRETREAT_ATTR=True
+LD_MULT_BN=True
+
 
 def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, activation='relu', normalization='batch',dropout=0):
     bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  
@@ -317,7 +320,7 @@ class Latent_Discriminator(nn.Module):
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3)
         #NEW change first conv to get 3 times bigger input 
-        if VERSION != "faderNet":
+        if LD_MULT_BN:
             layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*3, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
@@ -326,8 +329,7 @@ class Latent_Discriminator(nn.Module):
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
     def forward(self, x, bn_list):
-        if VERSION != "faderNet":
-            x=torch.cat(bn_list,dim=1)
+        if LD_MULT_BN: x=torch.cat(bn_list,dim=1)
         y = self.conv(x)
         y = self.pool(y)
         y = y.view(y.size()[0], -1)
