@@ -21,14 +21,14 @@ class FaderNet(TrainingModule):
         super(FaderNet, self).__init__(config)
 
         self.norm='none'
-        self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, normalization=self.norm)
+        self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks)
         if self.config.GAN_style == 'vanilla':
             self.D = Discriminator(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
         elif self.config.GAN_style == 'matching':
             self.D = DiscriminatorWithMatchingAttr(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
         elif self.config.GAN_style == 'classif':
             self.D = DiscriminatorWithClassifAttr(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
-        self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like, normalization=self.norm)
+        self.LD = Latent_Discriminator(image_size=config.image_size, im_channels=config.img_channels, attr_dim=len(config.attrs), conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, fc_dim=config.d_fc_dim, skip_connections=config.skip_connections, vgg_like=config.vgg_like, normalization=self.norm, first_conv=config.first_conv)
         print(self.G)
         if self.config.use_image_disc:
             print(self.D)

@@ -28,18 +28,18 @@ def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, a
         out_channels=min(2*out_channels,max_dim)
     return layers
 
-def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',vgg_like=0,dropout=0):
+def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3, activation='relu', normalization='batch',vgg_like=0,dropout=0, first_conv=False):
     bias = normalization != 'batch'  # use bias only if we do not use a normalization layer 
     if VERSION == "faderNet" : kernel_sizes=[4,4,4,4,4,4,4,4,4] 
     else : kernel_sizes=[3,3,3,3,3,3,3,3]
-    if FIRST_KERNEL: kernel_sizes[0]=7
+    if first_conv: kernel_sizes[0]=7
     
     layers = []
     in_channels = im_channels
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if (i>0 or not FIRST_KERNEL) else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if (i>0 or not first_conv) else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
             enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
             #enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
@@ -52,13 +52,12 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3
 
 
 class Encoder(nn.Module):
-    def __init__(self, conv_dim, n_layers, max_dim, im_channels, vgg_like, activation='relu', normalization='batch'):
+    def __init__(self, conv_dim, n_layers, max_dim, im_channels, vgg_like, activation='relu', normalization='batch',first_conv=False, n_bottlenecks=2):
         super(Encoder, self).__init__()
         bias = normalization != 'batch'  # use bias only if we do not use a normalization layer 
-        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=normalization,activation=activation,vgg_like=vgg_like) 
+        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=normalization,activation=activation,vgg_like=vgg_like, first_conv=first_conv) 
         self.encoder = nn.ModuleList(enc_layers)
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        n_bottlenecks = 2 if (VERSION == "faderNet" and n_layers>=5) else 3 #adapt depending on n_layers? or parameter?
         self.bottleneck = nn.ModuleList([ResidualBlock(b_dim, b_dim, activation, normalization, bias=bias) for i in range(n_bottlenecks)])
     #return [encodings,bneck]
     def encode(self,x):
@@ -100,10 +99,10 @@ def reshape_and_concat(feat,a):
     attr = a.repeat((1,1, feat.size(2), feat.size(3)))
     return torch.cat([feat, attr], dim=1)
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0): #NEW leaky_relu by default
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0, first_conv=False): #NEW leaky_relu by default
     bias = normalization != 'batch'
     decoder = nn.ModuleList()
-    shift = 0 if not FIRST_KERNEL else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
+    shift = 0 if not first_conv else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
     for i in reversed(range(shift,n_layers)): 
         #size of inputs/outputs
         dec_out = min(max_dim,conv_dim * 2 ** (i-1))
@@ -130,14 +129,14 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
 
 
 class Unet(nn.Module):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0, normalization='instance'):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0, normalization='instance', first_conv=False, n_bottlenecks=2):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
         self.up = nn.UpsamplingNearest2d(scale_factor=2) 
 
         ##### build encoder
-        self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like,normalization=normalization)
+        self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like,normalization=normalization, first_conv=first_conv, n_bottlenecks=n_bottlenecks)
         ##### build decoder
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like,normalization=normalization)
 
@@ -169,17 +168,17 @@ class Unet(nn.Module):
 
 
 class FaderNetGenerator(Unet):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1, normalization='instance'):
-        super(FaderNetGenerator, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like, normalization)
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1, normalization='instance', first_conv=False, n_bottlenecks=2):
+        super(FaderNetGenerator, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like, normalization,first_conv,n_bottlenecks)
         self.attr_dim = attr_dim
         self.n_attr_deconv = n_attr_deconv
         ##### change decoder : get attribute as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv,normalization=normalization)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv,normalization=normalization,first_conv=first_conv)
         #### bottlenecks
         bias = normalization != 'batch'
         b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
-        n_bottlenecks = 0 #bottlenecks that treat the attribute
-        self.bottleneck = nn.ModuleList([ ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias)  for i in range(n_bottlenecks)])
+        n_bottlenecks_dec = 0 #bottlenecks that treat the attribute
+        self.bottleneck = nn.ModuleList([ ResidualBlock(b_dim+attr_dim, b_dim, 'relu', normalization, bias=bias)  for i in range(n_bottlenecks_dec)])
 
     #adding the attribute if needed
     def add_attribute(self,i,out,a):
@@ -211,12 +210,13 @@ class FaderNetGenerator(Unet):
 
 
 class FaderNetGeneratorWithNormals(FaderNetGenerator):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance'):
-        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization)
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2):
+        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization,first_conv,n_bottlenecks)
         self.n_concat_normals = n_concat_normals
+        self.first_conv=first_conv
         ##### change decoder : get normal as input
         dim_attr_treat=32
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization) #NEW vgg_like=3
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
         self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
 
 
@@ -229,7 +229,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
     #adding the normal map at the right scale if needed
     def add_multiscale_map(self,i,out,map_pyramid,n_levels):
-        shift = 0 if not FIRST_KERNEL else 1 #PIX2PIX there is one layer less than n_layers
+        shift = 0 if not self.first_conv else 1 #PIX2PIX there is one layer less than n_layers
         if i >= self.n_layers-shift-n_levels: 
             out = (torch.cat([out, map_pyramid[i-(self.n_layers-shift-n_levels)]], dim=1)) 
         return out
@@ -315,17 +315,17 @@ def FC_layers(in_dim,fc_dim,out_dim,tanh):
 
 
 class Latent_Discriminator(nn.Module):
-    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0,normalization='instance'):
+    def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0,normalization='instance', first_conv=False):
         super(Latent_Discriminator, self).__init__()
         layers = []
         n_dis_layers = int(np.log2(image_size))
-        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3)
+        layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3, first_conv=first_conv)
         #NEW change first conv to get 3 times bigger input 
         if LD_MULT_BN:
             layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*2, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
-        self.pool = nn.AvgPool2d(1 if not FIRST_KERNEL else 2)
+        self.pool = nn.AvgPool2d(1 if not first_conv else 2)
         out_conv = min(max_dim,conv_dim * 2 ** (n_dis_layers - 1))
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
