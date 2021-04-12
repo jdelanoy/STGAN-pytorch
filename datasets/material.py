@@ -15,8 +15,8 @@ from matplotlib import pyplot as plt
 
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
-    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train.txt'), 'r')]
-    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full.txt'), 'r')]
+    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train_old.txt'), 'r')]
+    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full_old.txt'), 'r')]
     all_attr_names = lines_train[0].split()
     print(mode,all_attr_names, len(lines_train))
     attr2idx = {}
@@ -29,7 +29,7 @@ def make_dataset(root, mode, selected_attrs):
     random.seed(18)
     lines_train=lines_train[1:]
     lines_test=lines_test[1:]
-    #lines_train = lines_train[1:]
+    #lines_train=[line for line in lines_train if ("uffizi" in line)]
     if mode == 'train':
         lines = lines_train
     if mode == 'val': #put in first half a batch of test images, half of training images
