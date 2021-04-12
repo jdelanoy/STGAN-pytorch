@@ -20,7 +20,7 @@ class FaderNet(TrainingModule):
     def __init__(self, config):
         super(FaderNet, self).__init__(config)
 
-        self.norm='instance'
+        self.norm='none'
         self.G = FaderNetGenerator(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, normalization=self.norm)
         if self.config.GAN_style == 'vanilla':
             self.D = Discriminator(image_size=config.image_size, im_channels=3, attr_dim=len(config.attrs), conv_dim=config.d_conv_dim,n_layers=config.d_layers,max_dim=config.max_conv_dim,fc_dim=config.d_fc_dim, normalization=self.norm)
@@ -338,7 +338,7 @@ class FaderNet(TrainingModule):
     def testing_step(self, batch, batch_id):
         i=batch_id
         self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
-        self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        #self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
 
 
 
