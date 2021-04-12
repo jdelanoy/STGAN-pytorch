@@ -99,7 +99,7 @@ def reshape_and_concat(feat,a):
     attr = a.repeat((1,1, feat.size(2), feat.size(3)))
     return torch.cat([feat, attr], dim=1)
 
-def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', add_normal_map=0, add_illum_map=0, first_conv=False): #NEW leaky_relu by default
+def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, skip_connections=0,attr_dim=0,n_attr_deconv=0, vgg_like=0, n_branches=1,activation='leaky_relu', normalization='batch', additional_channels=[], first_conv=False): #NEW leaky_relu by default
     bias = normalization != 'batch'
     decoder = nn.ModuleList()
     shift = 0 if not first_conv else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
@@ -114,12 +114,11 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if i >= n_layers - 1 - skip_connections and i != n_layers-1: # skip connection: n_branches-1 or 1 feature map
             dec_in = dec_in + max(1,n_branches-1)*enc_size 
         if (i==shift and VERSION == "faderNet"): dec_out=conv_dim // 4 
-        if (i-shift < add_normal_map): dec_in += 3 #PIX2PIX there is one layer less than n_layers
-        if (i-shift < add_illum_map): dec_in += 6
+        if (i-shift < len(additional_channels)): dec_in += additional_channels[i-shift] #PIX2PIX there is one layer less than n_layers
         #print(i,dec_in)
 
         dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)]
-        if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==shift and VERSION == "faderNet" and add_normal_map):
+        if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==shift and VERSION == "faderNet" and len(additional_channels)>0):
             dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
 
@@ -216,7 +215,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         self.first_conv=first_conv
         ##### change decoder : get normal as input
         dim_attr_treat=32
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
+        additional_channels=[3 for i in range(self.n_concat_normals)]
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
         self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
 
 
@@ -235,6 +235,11 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         return out
 
     def decode(self, a, bneck, normals, encodings):
+        x,features = self.decode_with_features(a, bneck, normals, encodings)
+        return x
+
+    def decode_with_features(self, a, bneck, normals, encodings):
+        features=[]
         #prepare attr
         if PRETREAT_ATTR: a=self.attr_FC(a)
         #prepare normals
@@ -248,6 +253,42 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
             out = self.up(out)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = dec_layer(out)
+            features.append(out)
+        x = self.last_conv(out)
+        x = torch.tanh(x)
+        return x,features
+
+    def forward(self, x,a,normals):
+        # propagate encoder layers
+        encodings,z,_ = self.encode(x)
+        return self.decode(a,z,normals,encodings)
+
+
+
+
+class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2):
+        super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks)
+
+        additional_channels=[3+3 for i in range(self.n_concat_normals)]
+        ##### change decoder : add illum as input
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels, normalization=normalization,first_conv=first_conv)
+
+
+    def decode(self, a, bneck, normals, fadernet_output, encodings):
+        # prepapre illum and normals
+        fadernet_pyramid = self.prepare_pyramid(fadernet_output,self.n_concat_normals)
+        normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
+        #go through decoder
+        bneck=self.decoder_bottlenck(bneck,a)
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            out = self.add_attribute(i,out,a)
+            out = self.add_skip_connection(i,out,encodings)
+            out=self.up(out)
+            out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
+            out = self.add_multiscale_map(i,out,fadernet_pyramid,self.n_concat_normals)
+            out = dec_layer(out)
         x = self.last_conv(out)
         x = torch.tanh(x)
 
@@ -255,8 +296,11 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
     def forward(self, x,a,normals):
         # propagate encoder layers
-        encodings,z,_ = self.encode(x)
+        encodings,z = self.encode(x)
         return self.decode(a,z,normals,encodings)
+
+
+
 
 
 class FaderNetGeneratorWithNormalsAndIllum(FaderNetGeneratorWithNormals):
@@ -265,7 +309,8 @@ class FaderNetGeneratorWithNormalsAndIllum(FaderNetGeneratorWithNormals):
 
         self.n_concat_illum = n_concat_illum
         ##### change decoder : add illum as input
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, add_normal_map=self.n_concat_normals, add_illum_map=self.n_concat_illum,normalization=normalization)
+        additional_channels=[3+6 for i in range(self.n_concat_normals)] #TODO separate illum from normals
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels,normalization=normalization)
 
         bias = norm == 'none' 
         #series of convolutions for the illum
