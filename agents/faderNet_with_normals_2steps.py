@@ -21,7 +21,7 @@ class FaderNetWithNormals2Steps(FaderNet):
         super(FaderNetWithNormals2Steps, self).__init__(config)
 
         ###only change generator
-        self.G = FaderNetGeneratorWithNormals2Steps(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks)
+        self.G = FaderNetGeneratorWithNormals2Steps(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks, all_feat=config.all_feat)
         print(self.G)
 
         ### load the normal predictor network
@@ -44,7 +44,7 @@ class FaderNetWithNormals2Steps(FaderNet):
     def decode(self,bneck,encodings,att):
         normals= self.get_normals()
         fn_output, fn_features = self.get_fadernet_output(att)
-        return self.G.decode(att,bneck,normals,fn_output,encodings)
+        return self.G.decode(att,bneck,normals,fn_features,encodings)
 
     def init_sample_grid(self):
         x_fake_list = [self.get_fadernet_output(self.batch_a_att)[0],self.batch_Ia[:,:3]]

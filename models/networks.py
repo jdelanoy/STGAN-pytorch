@@ -267,17 +267,20 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
 
 class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True):
         super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks)
-
-        additional_channels=[3+3 for i in range(self.n_concat_normals)]
+        self.all_feat = all_feat
+        feat_channels=[8, 32, 64, 128, 256] 
+        additional_channels=[3+feat_channels[i if all_feat else 0] for i in range(self.n_concat_normals)]
         ##### change decoder : add illum as input
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels, normalization=normalization,first_conv=first_conv)
 
 
     def decode(self, a, bneck, normals, fadernet_output, encodings):
         # prepapre illum and normals
-        fadernet_pyramid = self.prepare_pyramid(fadernet_output,self.n_concat_normals)
+        
+        if self.all_feat : fadernet_pyramid = fadernet_output[-self.n_concat_normals:]
+        else: fadernet_pyramid = self.prepare_pyramid(fadernet_output[-1],self.n_concat_normals)
         normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
         #go through decoder
         bneck=self.decoder_bottlenck(bneck,a)
