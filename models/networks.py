@@ -103,7 +103,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
     shift = 0 if not first_conv else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
     for i in reversed(range(shift,n_layers)): 
         #size of inputs/outputs
-        dec_out = min(max_dim,conv_dim * 2 ** (i-1))
+        dec_out = int(min(max_dim,conv_dim * 2 ** (i-1)))
         dec_in = min(max_dim,conv_dim * 2 ** (i))
         enc_size = min(max_dim,conv_dim * 2 ** (i)) #corresponding encoding size (for skip connections)
         
@@ -369,11 +369,12 @@ class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0,normalization='instance', first_conv=False):
         super(Latent_Discriminator, self).__init__()
         layers = []
+        self.n_bnecks=3
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3, first_conv=first_conv)
         #NEW change first conv to get 3 times bigger input 
         if LD_MULT_BN:
-            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*2, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
+            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*self.n_bnecks, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
         self.pool = nn.AvgPool2d(1 if not first_conv else 2)
@@ -381,7 +382,7 @@ class Latent_Discriminator(nn.Module):
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
     def forward(self, x, bn_list):
-        if LD_MULT_BN: x=torch.cat(bn_list[-2:],dim=1)
+        if LD_MULT_BN: x=torch.cat(bn_list[-self.n_bnecks:],dim=1)
         y = self.conv(x)
         y = self.pool(y)
         y = y.view(y.size()[0], -1)
