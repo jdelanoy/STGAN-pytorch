@@ -23,7 +23,7 @@ def add_image_to_dataset(im,all_scores,attributes,outfile, has_gt_attr):
     #get the name of the material + write
     name = im_name.split('@')[-2].replace("-","")
     name = name.replace("_","")
-    print(im_name,name)
+#    print(im_name,name)
 #    print(im,name)
     if(name in all_scores['material_name']):
         outfile.write(dset+"/"+im_name+"\t")
@@ -65,9 +65,9 @@ def main():
         outfile.write(att+"\t")
     outfile.write("\n")
     #get the list of images
-    print(os.path.join(args.image_path,"renderings",args.dataset,"*"))
+    #print(os.path.join(args.image_path,"renderings",args.dataset,"*"))
     images = np.sort(glob.glob(os.path.join(args.image_path,"renderings",args.dataset,"*")))
-    print(images)
+    #print(images)
     print(len(images))
     #use gt attributes only if train dataset
     for im in images:
