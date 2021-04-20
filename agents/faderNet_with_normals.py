@@ -48,8 +48,10 @@ class FaderNetWithNormals(FaderNet):
 
     def get_normals(self):
         return self.batch_normals[:,:3]
-        normals=self.normal_G(self.batch_Ia)
-        return normals*self.batch_Ia[:,3:]
+        with torch.no_grad():
+            normals=self.normal_G(self.batch_Ia)
+            return normals*self.batch_Ia[:,3:]
+
 
 
 

@@ -64,9 +64,9 @@ class FaderNet(TrainingModule):
             return
 
         self.load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
-        if (self.config.use_image_disc):
+        if (self.config.use_image_disc and self.config.mode=='train'):
             self.load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        if self.config.use_latent_disc:
+        if self.config.use_latent_disc and self.config.mode=='train':
             self.load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
 
         self.current_iteration = self.config.checkpoint
@@ -317,7 +317,7 @@ class FaderNet(TrainingModule):
             elif self.config.GAN_style == 'classif':
                 out_disc, out_classif = self.D(Ib_hat)
                 loss_adv=self.config.lambda_adv*self.criterionGAN(out_disc, True)
-                loss_classif = 2*self.regression_loss(out_classif, b_att)
+                loss_classif = self.config.lambda_adv_classif*self.regression_loss(out_classif, b_att)
                 g_loss_adv = loss_adv + loss_classif
                 self.scalars['G/loss_adv_classif'] = loss_classif.item()
             # GAN loss
