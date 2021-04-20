@@ -31,7 +31,9 @@ class FaderNetWithNormals2Steps(FaderNet):
 
         #load the small FaderNet
         self.G_small = FaderNetGeneratorWithNormals(conv_dim=32,n_layers=6,max_dim=512, im_channels=config.img_channels, skip_connections=0, vgg_like=0, attr_dim=len(config.attrs), n_attr_deconv=1, n_concat_normals=4, normalization=self.norm, first_conv=False, n_bottlenecks=2)
+        #print(self.G_small) 
         self.load_model_from_path(self.G_small,config.faderNet_checkpoint)
+        self.G_small.eval()
 
 
         self.logger.info("FaderNet with normals in 2 steps ready")

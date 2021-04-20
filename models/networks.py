@@ -8,7 +8,6 @@ from models.blocks import *
 
 VERSION="faderNet" #"pix2pixHD"
 #all options are supposed to be true for new archi, false for faderNet
-PRETREAT_ATTR=False
 LD_MULT_BN=False
 
 
@@ -104,7 +103,7 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
     shift = 0 if not first_conv else 1 #PIX2PIX do no put the very last intermediate convolutions (one less stride)
     for i in reversed(range(shift,n_layers)): 
         #size of inputs/outputs
-        dec_out = min(max_dim,conv_dim * 2 ** (i-1))
+        dec_out = int(min(max_dim,conv_dim * 2 ** (i-1)))
         dec_in = min(max_dim,conv_dim * 2 ** (i))
         enc_size = min(max_dim,conv_dim * 2 ** (i)) #corresponding encoding size (for skip connections)
         
@@ -206,16 +205,17 @@ class FaderNetGenerator(Unet):
         encodings,z,_ = self.encode(x)
         return self.decode(a,z,encodings)
 
-PRETREAT_ATTR=False
 class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2):
         super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization,first_conv,n_bottlenecks)
         self.n_concat_normals = n_concat_normals
         self.first_conv=first_conv
+        self.pretreat_attr=False
+
         ##### change decoder : get normal as input
         dim_attr_treat=32
         additional_channels=[3 for i in range(self.n_concat_normals)]
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not self.pretreat_attr else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
         self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
 
 
@@ -240,7 +240,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def decode_with_features(self, a, bneck, normals, encodings):
         features=[]
         #prepare attr
-        if PRETREAT_ATTR: a=self.attr_FC(a)
+        if self.pretreat_attr: a=self.attr_FC(a)
         #prepare normals
         normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
         #go through net
@@ -264,22 +264,23 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
 
 
-PRETREAT_ATTR=False
 class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True):
         super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks)
         self.all_feat = all_feat
+        self.pretreat_attr=False
+        
         feat_channels=[8, 32, 64, 128, 256] 
         additional_channels=[3+feat_channels[i if all_feat else 0] for i in range(self.n_concat_normals)]
 
-        dim_attr_treat=32
+        dim_attr_treat=16
         self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
 
-        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim if not PRETREAT_ATTR else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels, normalization=normalization,first_conv=first_conv)
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim if not self.pretreat_attr else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels, normalization=normalization,first_conv=first_conv)
 
 
     def decode(self, a, bneck, normals, fadernet_output, encodings):
-        if PRETREAT_ATTR: a=self.attr_FC(a)
+        if self.pretreat_attr: a=self.attr_FC(a)
         # prepapre illum and normals
         if self.all_feat : fadernet_pyramid = fadernet_output[-self.n_concat_normals:]
         else: fadernet_pyramid = self.prepare_pyramid(fadernet_output[-1],self.n_concat_normals)
@@ -368,11 +369,12 @@ class Latent_Discriminator(nn.Module):
     def __init__(self, image_size=128, max_dim=512, attr_dim=10, im_channels = 3,conv_dim=64, fc_dim=1024, n_layers=5, skip_connections=2,vgg_like=0,normalization='instance', first_conv=False):
         super(Latent_Discriminator, self).__init__()
         layers = []
+        self.n_bnecks=3
         n_dis_layers = int(np.log2(image_size))
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3, first_conv=first_conv)
         #NEW change first conv to get 3 times bigger input 
         if LD_MULT_BN:
-            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*2, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
+            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*self.n_bnecks, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
         self.pool = nn.AvgPool2d(1 if not first_conv else 2)
@@ -380,7 +382,7 @@ class Latent_Discriminator(nn.Module):
         self.fc_att = FC_layers(out_conv,fc_dim,attr_dim,True)
 
     def forward(self, x, bn_list):
-        if LD_MULT_BN: x=torch.cat(bn_list[-2:],dim=1)
+        if LD_MULT_BN: x=torch.cat(bn_list[-self.n_bnecks:],dim=1)
         y = self.conv(x)
         y = self.pool(y)
         y = y.view(y.size()[0], -1)

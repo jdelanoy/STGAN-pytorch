@@ -15,8 +15,9 @@ from matplotlib import pyplot as plt
 
 def make_dataset(root, mode, selected_attrs):
     assert mode in ['train', 'val', 'test']
-    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train_old.txt'), 'r')]
-    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full_old.txt'), 'r')]
+    dset="old"
+    lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train_'+dset+'.txt'), 'r')]
+    lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full_'+dset+'.txt'), 'r')]
     all_attr_names = lines_train[0].split()
     print(mode,all_attr_names, len(lines_train))
     attr2idx = {}
