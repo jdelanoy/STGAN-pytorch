@@ -181,7 +181,7 @@ class TrainingModule(object):
                         self.writer.add_scalar(tag, value, self.current_iteration)
 
                 # sample
-                if (self.current_iteration) % self.config.sample_step == 0:
+                if (self.current_iteration) % self.config.sample_step == 0 or self.current_iteration==1:
                     self.eval_mode()
                     with torch.no_grad():
                         self.validating_step(val_data)
