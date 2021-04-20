@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 
 from datasets import *
-from models.networks import FaderNetGeneratorWithNormals2Steps,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet
+from models.networks import FaderNetGeneratorWithNormals2Steps,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet,reshape_and_concat
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 
 from utils.im_util import denorm, write_labels_on_images
@@ -48,6 +48,17 @@ class FaderNetWithNormals2Steps(FaderNet):
         fn_output, fn_features = self.get_fadernet_output(att)
         return self.G.decode(att,bneck,normals,fn_features,encodings)
 
+    # def encode(self):
+    #     #put attribute with input image
+    #     im_and_att=reshape_and_concat(self.batch_Ia,self.batch_a_att)
+    #     return self.G.encode(im_and_att)
+    # def encode(self):
+    #     #give the output of fadernet as input
+    #     im=self.get_fadernet_output(self.batch_a_att)[0]
+    #     mask=self.batch_Ia[:,3:]
+    #     im=torch.cat([im,mask],dim=1)
+    #     return self.G.encode(im)
+
     def init_sample_grid(self):
         x_fake_list = [self.get_fadernet_output(self.batch_a_att)[0],self.batch_Ia[:,:3]]
         return x_fake_list
@@ -63,7 +74,15 @@ class FaderNetWithNormals2Steps(FaderNet):
     def get_fadernet_output(self,att):
         encodings,z,_ = self.G_small.encode(self.batch_Ia)
         return self.G_small.decode_with_features(att,z,self.get_normals(),encodings)
-
-
+        # #rescale if input image is size 256
+        # rescaled_im=nn.functional.interpolate(self.batch_Ia, mode='bilinear', align_corners=True, scale_factor=0.5)
+        # rescaled_normals=nn.functional.interpolate(self.get_normals(), mode='bilinear', align_corners=True, scale_factor=0.5)
+        
+        # encodings,z,_ = self.G_small.encode(rescaled_im)
+        # fn_output, fn_features = self.G_small.decode_with_features(att,z,rescaled_normals,encodings)
+        
+        # fn_output=nn.functional.interpolate(fn_output, mode='bilinear', align_corners=True, scale_factor=2)
+        # fn_features=[nn.functional.interpolate(map, mode='bilinear', align_corners=True, scale_factor=2) for map in fn_features]
+        # return fn_output, fn_features
 
 
