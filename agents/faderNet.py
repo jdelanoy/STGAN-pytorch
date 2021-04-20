@@ -317,7 +317,7 @@ class FaderNet(TrainingModule):
             elif self.config.GAN_style == 'classif':
                 out_disc, out_classif = self.D(Ib_hat)
                 loss_adv=self.config.lambda_adv*self.criterionGAN(out_disc, True)
-                loss_classif = 2*self.regression_loss(out_classif, b_att)
+                loss_classif = self.config.lambda_adv_classif*self.regression_loss(out_classif, b_att)
                 g_loss_adv = loss_adv + loss_classif
                 self.scalars['G/loss_adv_classif'] = loss_classif.item()
             # GAN loss
