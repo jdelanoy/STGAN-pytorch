@@ -56,13 +56,15 @@ class FaderNetWithNormals2Steps(FaderNet):
 
     def get_normals(self):
         return self.batch_normals[:,:3]
-        normals=self.normal_G(self.batch_Ia)
-        return normals*self.batch_Ia[:,3:]
+        with torch.no_grad():
+            normals=self.normal_G(self.batch_Ia)
+            return normals*self.batch_Ia[:,3:]
 
 
     def get_fadernet_output(self,att):
-        encodings,z,_ = self.G_small.encode(self.batch_Ia)
-        return self.G_small.decode_with_features(att,z,self.get_normals(),encodings)
+        with torch.no_grad():
+            encodings,z,_ = self.G_small.encode(self.batch_Ia)
+            return self.G_small.decode_with_features(att,z,self.get_normals(),encodings)
 
 
 
