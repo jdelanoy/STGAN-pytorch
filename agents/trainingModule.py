@@ -101,10 +101,10 @@ class TrainingModule(object):
             f_img_hat = self.vgg16_f(Ia_hat)
             if self.config.lambda_G_perc > 0:
                 self.scalars['G/loss_rec_perc'] = self.config.lambda_G_perc * self.loss_P(f_img_hat, f_img)
-                g_loss_rec += self.scalars['G/loss_rec_perc']
+                g_loss_rec += self.scalars['G/loss_rec_perc'].item()
             if self.config.lambda_G_style > 0:
                 self.scalars['G/loss_rec_style'] = self.config.lambda_G_style * self.loss_S(f_img_hat, f_img)
-                g_loss_rec += self.scalars['G/loss_rec_style']
+                g_loss_rec += self.scalars['G/loss_rec_style'].item()
         return g_loss_rec
     def angular_reconstruction_loss(self, normals, normals_hat):
         mask=normals[:,3:]
