@@ -64,9 +64,9 @@ class FaderNet(TrainingModule):
             return
 
         self.load_one_model(self.G,self.optimizer_G if self.config.mode=='train' else None,'G')
-        if (self.config.use_image_disc):
+        if (self.config.use_image_disc and self.config.mode=='train'):
             self.load_one_model(self.D,self.optimizer_D if self.config.mode=='train' else None,'D')
-        if self.config.use_latent_disc:
+        if self.config.use_latent_disc and self.config.mode=='train':
             self.load_one_model(self.LD,self.optimizer_LD if self.config.mode=='train' else None,'LD')
 
         self.current_iteration = self.config.checkpoint
