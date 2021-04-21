@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 
 from datasets import *
-from models.networks import FaderNetGeneratorWithNormals2Steps,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet,reshape_and_concat
+from models.networks import FaderNetGeneratorWithNormals2Steps2,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet,reshape_and_concat
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 
 from utils.im_util import denorm, write_labels_on_images
@@ -21,7 +21,7 @@ class FaderNetWithNormals2Steps(FaderNet):
         super(FaderNetWithNormals2Steps, self).__init__(config)
 
         ###only change generator
-        self.G = FaderNetGeneratorWithNormals2Steps(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks, all_feat=config.all_feat)
+        self.G = FaderNetGeneratorWithNormals2Steps2(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks, all_feat=config.all_feat)
         print(self.G)
 
         ### load the normal predictor network
@@ -45,19 +45,19 @@ class FaderNetWithNormals2Steps(FaderNet):
     ##################### EVAL UTILITIES ###########################
     def decode(self,bneck,encodings,att):
         normals= self.get_normals()
-        fn_output, fn_features = self.get_fadernet_output(att)
+        fn_output, fn_features, _ = self.get_fadernet_output(att)
         return self.G.decode(att,bneck,normals,fn_features,encodings)
 
     # def encode(self):
     #     #put attribute with input image
     #     im_and_att=reshape_and_concat(self.batch_Ia,self.batch_a_att)
     #     return self.G.encode(im_and_att)
-    # def encode(self):
-    #     #give the output of fadernet as input
-    #     im=self.get_fadernet_output(self.batch_a_att)[0]
-    #     mask=self.batch_Ia[:,3:]
-    #     im=torch.cat([im,mask],dim=1)
-    #     return self.G.encode(im)
+    def encode(self):
+        #give the output of fadernet as input
+        im,fn_feat_dec,fn_feat_enc=self.get_fadernet_output(self.batch_a_att)
+        mask=self.batch_Ia[:,3:]
+        im=torch.cat([im,mask],dim=1)
+        return self.G.encode(im,fn_feat_enc)
 
     def init_sample_grid(self):
         x_fake_list = [self.get_fadernet_output(self.batch_a_att)[0],self.batch_Ia[:,:3]]
@@ -75,7 +75,8 @@ class FaderNetWithNormals2Steps(FaderNet):
     def get_fadernet_output(self,att):
         with torch.no_grad():
             encodings,z,_ = self.G_small.encode(self.batch_Ia)
-            return self.G_small.decode_with_features(att,z,self.get_normals(),encodings)
+            fn_output, fn_features= self.G_small.decode_with_features(att,z,self.get_normals(),encodings)
+            return fn_output, fn_features, encodings
             # #rescale if input image is size 256
             # rescaled_im=nn.functional.interpolate(self.batch_Ia, mode='bilinear', align_corners=True, scale_factor=0.5)
             # rescaled_normals=nn.functional.interpolate(self.get_normals(), mode='bilinear', align_corners=True, scale_factor=0.5)

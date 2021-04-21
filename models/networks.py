@@ -305,7 +305,73 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         encodings,z = self.encode(x)
         return self.decode(a,z,normals,encodings)
 
+def add_input_channels(layer,n_channels):
+    layer[0].conv=nn.Conv2d(layer[0].conv.in_channels+n_channels, layer[0].conv.out_channels, layer[0].conv.kernel_size, layer[0].conv.stride, layer[0].conv.padding, bias=True)
 
+class FaderNetGeneratorWithNormals2Steps2(FaderNetGeneratorWithNormals):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True):
+        super(FaderNetGeneratorWithNormals2Steps2, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks)
+        self.all_feat = all_feat
+        self.pretreat_attr=False
+
+        #redefine encoder
+        enc_layers=build_encoder_layers(conv_dim,n_layers,max_dim, im_channels,normalization=normalization,activation='relu',vgg_like=vgg_like, first_conv=first_conv)
+        add_enc_channels=[32, 64, 128, 256]
+        for i in range (1,3):
+            add_input_channels(enc_layers[i],add_enc_channels[i-1])
+        self.encoder = nn.ModuleList(enc_layers)
+        b_dim=min(max_dim,conv_dim * 2 ** (n_layers-1))
+        self.bottleneck_enc = nn.ModuleList([ResidualBlock(b_dim, b_dim, 'relu', normalization, bias=True) for i in range(n_bottlenecks)])
+
+        #redefine decoder
+        additional_channels=[3 for i in range(self.n_concat_normals)]
+
+        dim_attr_treat=16
+        self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
+
+        self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=vgg_like, attr_dim=attr_dim if not self.pretreat_attr else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels, normalization=normalization,first_conv=first_conv)
+
+    def encode(self,x,encodings):
+        # Encoder
+        x_encoder = []
+        encodings=[nn.functional.interpolate(map, mode='bilinear', align_corners=True, scale_factor=2) for map in encodings]
+        for i,block in enumerate(self.encoder):
+            if (1<=i<3): 
+                #print(i)
+                #print(x.shape)
+                #print(encodings[i-1].shape)
+                x=torch.cat([x, encodings[i-1]], dim=1)
+            x = block(x)
+            x_encoder.append(x)
+
+        bn=[]
+        # Bottleneck
+        for block in self.bottleneck_enc:
+            x = block(x)
+            bn.append(x)
+        return x_encoder, x, bn
+    def decode(self, a, bneck, normals, fadernet_output, encodings):
+        if self.pretreat_attr: a=self.attr_FC(a)
+        # prepapre illum and normals
+        normal_pyramid = self.prepare_pyramid(normals,self.n_concat_normals)
+        #go through decoder
+        bneck=self.decoder_bottlenck(bneck,a)
+        out=bneck
+        for i, dec_layer in enumerate(self.decoder):
+            out = self.add_attribute(i,out,a)
+            out = self.add_skip_connection(i,out,encodings)
+            out=self.up(out)
+            out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
+            out = dec_layer(out)
+        x = self.last_conv(out)
+        x = torch.tanh(x)
+
+        return x
+
+    def forward(self, x,a,normals):
+        # propagate encoder layers
+        encodings,z = self.encode(x)
+        return self.decode(a,z,normals,encodings)
 
 
 
