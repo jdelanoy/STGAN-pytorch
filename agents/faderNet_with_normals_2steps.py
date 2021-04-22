@@ -21,7 +21,7 @@ class FaderNetWithNormals2Steps(FaderNet):
         super(FaderNetWithNormals2Steps, self).__init__(config)
 
         ###only change generator
-        self.G = FaderNetGeneratorWithNormals2Steps2(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks, all_feat=config.all_feat)
+        self.G = FaderNetGeneratorWithNormals2Steps(conv_dim=config.g_conv_dim,n_layers=config.g_layers,max_dim=config.max_conv_dim, im_channels=config.img_channels, skip_connections=config.skip_connections, vgg_like=config.vgg_like, attr_dim=len(config.attrs), n_attr_deconv=config.n_attr_deconv, n_concat_normals=config.n_concat_normals, normalization=self.norm, first_conv=config.first_conv, n_bottlenecks=config.n_bottlenecks, all_feat=config.all_feat)
         print(self.G)
 
         ### load the normal predictor network
@@ -52,17 +52,16 @@ class FaderNetWithNormals2Steps(FaderNet):
     #     #put attribute with input image
     #     im_and_att=reshape_and_concat(self.batch_Ia,self.batch_a_att)
     #     return self.G.encode(im_and_att)
-    def encode(self):
-        #give the output of fadernet as input
-        im,fn_feat_dec,fn_feat_enc=self.get_fadernet_output(self.batch_a_att)
-        mask=self.batch_Ia[:,3:]
-        im=torch.cat([im,mask],dim=1)
-        return self.G.encode(im,fn_feat_enc)
+    # def encode(self):
+    #     #give the output of fadernet as input
+    #     im,fn_feat_dec,fn_feat_enc=self.get_fadernet_output(self.current_att)
+    #     mask=self.batch_Ia[:,3:]
+    #     im=torch.cat([im,mask],dim=1)
+    #     return self.G.encode(im,fn_feat_enc)
 
     def init_sample_grid(self):
         x_fake_list = [self.get_fadernet_output(self.batch_a_att)[0],self.batch_Ia[:,:3]]
         return x_fake_list
-
 
 
     def get_normals(self):

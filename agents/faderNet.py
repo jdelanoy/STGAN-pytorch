@@ -110,10 +110,10 @@ class FaderNet(TrainingModule):
     def encode(self):
         return self.G.encode(self.batch_Ia)
     def forward(self,new_attr=None):
+        if new_attr != None: self.current_att=new_attr
+        else: self.current_att = self.batch_a_att
         encodings,z,_ = self.encode()
-        if new_attr != None: att=new_attr
-        else: att = self.batch_a_att
-        return self.decode(z,encodings,att)
+        return self.decode(z,encodings,self.current_att)
 
 
 
@@ -284,6 +284,8 @@ class FaderNet(TrainingModule):
         self.G.train()
         self.D.eval()
         self.LD.eval()
+
+        self.current_att=self.batch_a_att       
 
         encodings,bneck,bn_list = self.encode()
         Ia_hat=self.decode(bneck,encodings,self.batch_a_att)
