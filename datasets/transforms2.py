@@ -77,7 +77,10 @@ class RandomHorizontalFlip(object):
     def __call__(self, image, normals):
         if random.random() < self.flip_prob:
             image = F.hflip(image)
-            normals = F.hflip(normals) #TODO change normals
+            normals = F.hflip(normals) 
+            normals_red_channel = normals[:,:,0]
+            normals_red_channel = 255 - normals_red_channel
+            normals[:,:,0] = normals_red_channel
         return image, normals
 
 
@@ -88,10 +91,48 @@ class RandomVerticalFlip(object):
     def __call__(self, image, normals):
         if random.random() < self.flip_prob:
             image = F.vflip(image)
-            normals = F.vflip(normals) 
-            #TODO change normals
+            normals = F.vflip(normals)
+            normals_green_channel = normals[:,:,1]
+            normals_green_channel = 255 - normals_green_channel
+            normals[:,:,1] = normals_green_channel
         return image, normals
 
+class Random90DegRotClockWise(object):
+    def __init__(self, flip_prob):
+        self.flip_prob = flip_prob
+
+    def __call__(self, image, normals):
+        if random.random() < self.flip_prob:
+            angle = 90
+            image =  F.rotate(image, angle, resample=False, expand=False, center=None)
+            normals =  F.rotate(normals, angle, resample=False, expand=False, center=None)
+
+            normals_red_channel = normals[:,:,0]
+            normals_green_channel = normals[:,:,1]
+
+            normals_red_channel = 255 - normals_red_channel
+            normals[:,:,0] = normals_green_channel
+            normals[:,:,1] = normals_red_channel
+        return image, normals
+
+class Random180DegRot(object):
+    def __init__(self, flip_prob):
+        self.flip_prob = flip_prob
+
+    def __call__(self, image, normals):
+        if random.random() < self.flip_prob:
+            angle = 180
+            image =  F.rotate(image, angle, resample=False, expand=False, center=None)
+            normals =  F.rotate(normals, angle, resample=False, expand=False, center=None)
+
+            normals_red_channel = normals[:,:,0]
+            normals_green_channel = normals[:,:,1]
+
+            normals_red_channel = 255 - normals_red_channel
+            normals_green_channel = 255 - normals_green_channel
+            normals[:,:,0] = normals_red_channel
+            normals[:,:,1] = normals_green_channel
+        return image, normals
 
 class RandomCrop(object):
     def __init__(self, size):
