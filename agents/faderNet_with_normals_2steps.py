@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision.utils as tvutils
 
 from datasets import *
-from models.networks import FaderNetGeneratorWithNormals2Steps2,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet,reshape_and_concat
+from models.networks import FaderNetGeneratorWithNormals2Steps,FaderNetGeneratorWithNormals, Discriminator, Latent_Discriminator, Unet,reshape_and_concat
 from modules.perceptual_loss import PerceptualLoss, StyleLoss, VGG16FeatureExtractor
 
 from utils.im_util import denorm, write_labels_on_images
