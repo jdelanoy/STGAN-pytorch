@@ -160,10 +160,9 @@ class TrainingModule(object):
         tdqm_post={"Time":"0"}
         for batch in range(start_batch, self.config.max_epoch):
             tdqm_post["Time"]=str(datetime.timedelta(seconds=time.time() - start_time))[:-7]
-            tqdm_loader = tqdm(self.data_loader.train_loader, total=self.data_loader.train_iterations, desc='Batch {}'.format(batch),postfix=tdqm_post,leave=(batch==self.config.max_epoch-1))
+            tqdm_loader = tqdm(self.data_loader.train_loader, total=self.data_loader.train_iterations, desc='Batch {} (iter {})'.format(batch,self.current_iteration),postfix=tdqm_post,leave=(batch==self.config.max_epoch-1))
 
             for train_data in tqdm_loader: #tdqm
-
                 #train
                 self.training_mode()
                 ##################### TRAINING STEP
