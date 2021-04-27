@@ -130,7 +130,7 @@ class Unet(nn.Module):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
-        self.up = nn.UpsamplingNearest2d(scale_factor=2) 
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
 
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like,normalization=normalization, first_conv=first_conv, n_bottlenecks=n_bottlenecks)
@@ -222,7 +222,7 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def prepare_pyramid(self,map,n_levels):
         map_pyramid=[map]
         for i in range(n_levels-1):
-            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=True, scale_factor=0.5))
+            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
         return map_pyramid
 
 
