@@ -19,6 +19,7 @@ def make_dataset(root, mode, selected_attrs):
     #dset="old"
     lines_train = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_train_'+dset+'.txt'), 'r')]
     lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test_full_'+dset+'.txt'), 'r')]
+    #lines_test = [line.rstrip() for line in open(os.path.join(root,  'attributes_dataset_test.txt'), 'r')]
     all_attr_names = lines_train[0].split()
     print(mode,all_attr_names, len(lines_train))
     attr2idx = {}
@@ -38,6 +39,7 @@ def make_dataset(root, mode, selected_attrs):
         lines = random.sample(lines_test,16)+random.sample(lines_train,16)
     if mode == 'test':
         #np.random.shuffle(lines_test)
+        #lines_test=[line for line in lines_test if ("@mat" in line)]
         lines = lines_test #[:32*2]+random.sample(lines_train,32*4) #for full dataset
 
         # #only from one shape/one env
@@ -303,10 +305,10 @@ class MaterialDataLoader(object):
         if self.data_augmentation:
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
-                T.RandomHorizontalFlip(0.5), 
-                T.RandomVerticalFlip(0.5),
-                T.Random180DegRot(0.5),
-                T.Random90DegRotClockWise(0.5),
+                # T.RandomHorizontalFlip(0.5), 
+                # T.RandomVerticalFlip(0.5),
+                # T.Random180DegRot(0.5),
+                # T.Random90DegRotClockWise(0.5),
                 T.RandomCrop(size=self.crop_size),
                 T.RandomResize(low=original_size, high=int(original_size*1.1718)),
                 #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
