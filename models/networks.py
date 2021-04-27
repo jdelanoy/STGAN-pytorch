@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torchsummary import summary
 import numpy as np
-
+from utils import resize_right, interp_methods
 from models.blocks import * 
 
 
@@ -152,7 +152,8 @@ class Unet(nn.Module):
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_skip_connection(i,out,encodings)
-            out = dec_layer(self.up(out))
+            #out = dec_layer(self.up(out))
+            out = dec_layer(resize_reight.resize(out, scale_factors=2))
         x = self.last_conv(out) 
         x = torch.tanh(x)
         x = x / torch.sqrt((x**2).sum(dim=1,keepdims=True))
@@ -222,7 +223,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def prepare_pyramid(self,map,n_levels):
         map_pyramid=[map]
         for i in range(n_levels-1):
-            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
+            #map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
+            map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
         return map_pyramid
 
 
