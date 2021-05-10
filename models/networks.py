@@ -223,8 +223,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def prepare_pyramid(self,map,n_levels):
         map_pyramid=[map]
         for i in range(n_levels-1):
-            #map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
-            map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
+            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
+            #map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
         return map_pyramid
 
 
