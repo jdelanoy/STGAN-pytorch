@@ -7,6 +7,8 @@ import torch
 #from torchvision.transforms import functional as F
 from opencv_transforms import functional as F
 from opencv_transforms import transforms as T
+import albumentations as A
+from albumentations import functional as FA
 
 
 
@@ -38,6 +40,8 @@ class CenterCrop(object):
         image = F.center_crop(image, self.size)
         normals = F.center_crop(normals, self.size)
         return image, normals
+
+
 
 
 class Resize(object): 
@@ -133,6 +137,18 @@ class Random180DegRot(object):
             normals[:,:,0] = normals_red_channel
             normals[:,:,1] = normals_green_channel
         return image, normals
+
+class Albumentations(object):
+    def __init__(self, hue_limit):
+        self.hue_limit = hue_limit
+        self.flip_prob=1
+
+    def __call__(self, image, normals):
+        if random.random() < self.flip_prob:
+            hue_shift=random.uniform(-self.hue_limit, self.hue_limit)
+            image[:,:,:3] = FA.shift_hsv(image[:,:,:3], hue_shift=hue_shift,sat_shift=0, val_shift=0)
+        return image, normals
+
 
 class RandomCrop(object):
     def __init__(self, size):

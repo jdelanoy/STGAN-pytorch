@@ -305,10 +305,11 @@ class MaterialDataLoader(object):
         if self.data_augmentation:
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
-                # T.RandomHorizontalFlip(0.5), 
-                # T.RandomVerticalFlip(0.5),
-                # T.Random180DegRot(0.5),
-                # T.Random90DegRotClockWise(0.5),
+                T.RandomHorizontalFlip(0.5), 
+                T.RandomVerticalFlip(0.5),
+                T.Random180DegRot(0.5),
+                T.Random90DegRotClockWise(0.5),
+                T.Albumentations(50),
                 T.RandomCrop(size=self.crop_size),
                 T.RandomResize(low=original_size, high=int(original_size*1.1718)),
                 #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
