@@ -139,14 +139,16 @@ class Random180DegRot(object):
         return image, normals
 
 class Albumentations(object):
-    def __init__(self, hue_limit):
+    def __init__(self, hue_limit, sat_limit, flip_prob):
         self.hue_limit = hue_limit
-        self.flip_prob=1
+        self.sat_limit = sat_limit
+        self.flip_prob=flip_prob
 
     def __call__(self, image, normals):
         if random.random() < self.flip_prob:
             hue_shift=random.uniform(-self.hue_limit, self.hue_limit)
-            image[:,:,:3] = FA.shift_hsv(image[:,:,:3], hue_shift=hue_shift,sat_shift=0, val_shift=0)
+            sat_shift=random.uniform(-self.sat_limit, self.sat_limit)
+            image[:,:,:3] = FA.shift_hsv(image[:,:,:3], hue_shift=hue_shift,sat_shift=sat_shift, val_shift=0)
         return image, normals
 
 
