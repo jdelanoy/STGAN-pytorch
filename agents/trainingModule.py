@@ -74,7 +74,7 @@ class TrainingModule(object):
         return optim.Adam(model.parameters(), lr, [self.config.beta1, self.config.beta2])
     def build_scheduler(self,optimizer,not_load=False):
         last_epoch=-1 if (self.config.checkpoint == None or not_load) else self.config.checkpoint
-        return optim.lr_scheduler.StepLR(optimizer, step_size=self.config.lr_decay_iters, gamma=0.1, last_epoch=last_epoch)
+        return optim.lr_scheduler.StepLR(optimizer, step_size=self.config.lr_decay_iters, gamma=0.5, last_epoch=last_epoch)
     def optimize(self,optimizer,loss): 
         optimizer.zero_grad()
         loss.backward(retain_graph=True)
