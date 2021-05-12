@@ -339,7 +339,7 @@ class FaderNet(TrainingModule):
 
     def testing_step(self, batch, batch_id):
         i=batch_id
-        self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, 'sample_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
+        self.compute_sample_grid(batch,3.0,os.path.join(self.config.result_dir, "sample_{}_{}.png".format(i + 1,self.config.checkpoint)),writer=False)
         #self.compute_sample_grid(batch,5.0,os.path.join(self.config.result_dir, 'sample_big_{}_{}.png'.format(i + 1,self.config.checkpoint)),writer=False)
 
 
