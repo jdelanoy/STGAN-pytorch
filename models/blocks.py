@@ -41,8 +41,8 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
         
         self.convs=nn.Sequential( 
-            ConvReluBn(nn.Conv2d(in_ch, out_ch, 3, 1, 1,bias=bias),activation=activation,normalization=normalization),
-            nn.Conv2d(out_ch, out_ch, 3, 1, 1,bias=bias),
+            ConvReluBn(nn.Conv2d(in_ch, out_ch, 3, 1, 1,bias=bias,padding_mode='reflect'),activation=activation,normalization=normalization),
+            nn.Conv2d(out_ch, out_ch, 3, 1, 1,bias=bias,padding_mode='reflect'),
             normalization_func(normalization)(out_ch)
         )
 
