@@ -18,7 +18,7 @@ def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, a
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias),activation,normalization=normalization if i > 0 else 'none')] 
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, 4, 2, 1,bias=bias,padding_mode='reflect'),activation,normalization=normalization if i > 0 else 'none')] 
         if dropout > 0:
             enc_layer.append(nn.Dropout(dropout))
         layers.append(nn.Sequential(*enc_layer))
@@ -37,9 +37,9 @@ def build_encoder_layers(conv_dim=64, n_layers=6, max_dim = 512, im_channels = 3
     out_channels = conv_dim
     for i in range(n_layers):
         #print(i, in_channels,out_channels)
-        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if (i>0 or not first_conv) else 1, (kernel_sizes[i]-1)//2,bias=bias),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
+        enc_layer=[ConvReluBn(nn.Conv2d(in_channels, out_channels, kernel_sizes[i], 2 if (i>0 or not first_conv) else 1, (kernel_sizes[i]-1)//2,bias=bias,padding_mode='reflect'),activation,normalization=normalization)] #PIX2PIX stride 1 in first conv
         if (i >= n_layers-1-vgg_like and i<n_layers-1):
-            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
+            enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias,padding_mode='reflect'),activation,normalization)]
             #enc_layer += [ConvReluBn(nn.Conv2d(out_channels, out_channels, 3, 1, 1,bias=bias),activation,normalization)]
         if dropout > 0:
             enc_layer.append(nn.Dropout(dropout))
@@ -115,9 +115,9 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
         if (i-shift < len(additional_channels)): dec_in += additional_channels[i-shift] #PIX2PIX there is one layer less than n_layers
         #print(i,dec_in)
 
-        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias),activation=activation,normalization=normalization)]
+        dec_layer=[ConvReluBn(nn.Conv2d(dec_in, dec_out, 3, 1, 1,bias=bias,padding_mode='reflect'),activation=activation,normalization=normalization)]
         if (vgg_like > 0 and i >= n_layers - vgg_like) or (i==shift and VERSION == "faderNet" and len(additional_channels)>0):
-            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias),activation,normalization)]
+            dec_layer+=[ConvReluBn(nn.Conv2d(dec_out, dec_out, 3, 1, 1,bias=bias,padding_mode='reflect'),activation,normalization)]
         decoder.append(nn.Sequential(*dec_layer))
 
     last_kernel= 3 if VERSION == "faderNet" else 7
@@ -308,7 +308,7 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         return self.decode(a,z,normals,encodings)
 
 def add_input_channels(layer,n_channels):
-    layer[0].conv=nn.Conv2d(layer[0].conv.in_channels+n_channels, layer[0].conv.out_channels, layer[0].conv.kernel_size, layer[0].conv.stride, layer[0].conv.padding, bias=True)
+    layer[0].conv=nn.Conv2d(layer[0].conv.in_channels+n_channels, layer[0].conv.out_channels, layer[0].conv.kernel_size, layer[0].conv.stride, layer[0].conv.padding, bias=True,padding_mode='reflect')
 
 class FaderNetGeneratorWithNormals2Steps2(FaderNetGeneratorWithNormals):
     def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True):
@@ -442,7 +442,7 @@ class Latent_Discriminator(nn.Module):
         layers=build_encoder_layers(conv_dim,n_dis_layers, max_dim, im_channels, normalization=normalization,activation='leaky_relu',dropout=0.3, first_conv=first_conv)
         #NEW change first conv to get 3 times bigger input 
         if LD_MULT_BN:
-            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*self.n_bnecks, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch')
+            layers[n_layers-skip_connections][0].conv=nn.Conv2d(layers[n_layers-skip_connections][0].conv.in_channels*self.n_bnecks, layers[n_layers-skip_connections][0].conv.out_channels, layers[n_layers-skip_connections][0].conv.kernel_size, layers[n_layers-skip_connections][0].conv.stride, 1,bias=normalization!='batch',padding_mode='reflect')
 
         self.conv = nn.Sequential(*layers[n_layers-skip_connections:])
         self.pool = nn.AvgPool2d(1 if not first_conv else 2)
