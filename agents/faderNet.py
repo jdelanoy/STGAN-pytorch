@@ -294,7 +294,14 @@ class FaderNet(TrainingModule):
         g_loss_rec = self.config.lambda_G_rec * self.image_reconstruction_loss(self.batch_Ia[:,:3],Ia_hat)
         g_loss = g_loss_rec
         self.scalars['G/loss_rec'] = g_loss_rec.item()
-
+        #tv loss
+        g_tv_loss = self.config.lambda_G_tv * (
+            torch.mean(torch.abs(Ia_hat[:, :, :, :-1] - Ia_hat[:, :, :, 1:])) + 
+            torch.mean(torch.abs(Ia_hat[:, :, :-1, :] - Ia_hat[:, :, 1:, :]))
+        )
+        g_loss += g_tv_loss
+        self.scalars['G/loss_tv'] = g_tv_loss.item()
+        
         #latent discriminator for attribute
         if self.config.use_latent_disc:
             out_att = self.LD(bneck,bn_list)
