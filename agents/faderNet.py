@@ -155,7 +155,7 @@ class FaderNet(TrainingModule):
         for col in range(len(all_images[0])):
             x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
         x_concat = torch.cat(x_fake_list, dim=3)
-        image = tvutils.make_grid(denorm(x_concat), nrow=1)
+        image = tvutils.make_grid(denorm(x_concat,device=self.device), nrow=1)
         if writer:
             self.writer.add_image('sample', image,self.current_iteration)
         if path:

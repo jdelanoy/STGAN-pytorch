@@ -45,12 +45,12 @@ def _imscatter(x, y, image, color=None, ax=None, zoom=1.):
     ax.autoscale()
     return artists
 
-def denorm(x):
+def denorm(x, device):
     #get from [-1,1] to [0,1]
     if x.size(1) == 4:
-        norm=Normalize(mean=(-1,-1,-1,0), std=(2,2,2,1))
+        norm=Normalize(mean=(-1,-1,-1,0), std=(2,2,2,1), device=device)
     else:
-        norm=Normalize(mean=(-1,-1,-1), std=(2,2,2))
+        norm=Normalize(mean=(-1,-1,-1), std=(2,2,2), device=device)
     return norm(x)
     #out = (x + 1) / 2
     #return out.clamp_(0, 1)
