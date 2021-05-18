@@ -296,7 +296,7 @@ class MaterialDataLoader(object):
             dset = __import__('datasets.transforms2', globals(), locals()) 
             T = dset.transforms2
         val_trf = T.Compose([
-            T.CenterCrop(self.crop_size),
+            #T.CenterCrop(self.crop_size),
             T.Resize(self.image_size),
             T.ToTensor(),
             T.Normalize(mean=(0.5, 0.5, 0.5,0), std=(0.5, 0.5, 0.5,1))
@@ -306,12 +306,13 @@ class MaterialDataLoader(object):
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
                 T.RandomHorizontalFlip(0.5), 
-                T.RandomVerticalFlip(0.5),
-                T.Random180DegRot(0.5),
-                T.Random90DegRotClockWise(0.5),
-                T.Albumentations(50,10,1),
+                #T.RandomVerticalFlip(0.5),
+                #T.Random180DegRot(0.5),
+                #T.Random90DegRotClockWise(0.5),
+                T.Albumentations(50,50,0.5),
                 T.RandomCrop(size=self.crop_size),
                 T.RandomResize(low=original_size, high=int(original_size*1.1718)),
+                T.CenterCrop(original_size),
                 #T.RandomRotation(degrees=(-5, 5)), #TODO recode for normals
                 val_trf,
             ])
