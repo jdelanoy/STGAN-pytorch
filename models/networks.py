@@ -153,7 +153,7 @@ class Unet(nn.Module):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_skip_connection(i,out,encodings)
             #out = dec_layer(self.up(out))
-            out = dec_layer(resize_reight.resize(out, scale_factors=2))
+            out = dec_layer(resize_right.resize(out, scale_factors=2))
         x = self.last_conv(out) 
         x = torch.tanh(x)
         x = x / torch.sqrt((x**2).sum(dim=1,keepdims=True))
@@ -223,8 +223,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     def prepare_pyramid(self,map,n_levels):
         map_pyramid=[map]
         for i in range(n_levels-1):
-            map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
-            #map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
+            #map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
+            map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
         return map_pyramid
 
 
@@ -251,7 +251,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
-            out = self.up(out)
+            #out = self.up(out)
+            out = dec_layer(resize_right.resize(out, scale_factors=2))
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = dec_layer(out)
             features.append(out)
@@ -293,7 +294,8 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
-            out=self.up(out)
+            #out=self.up(out)
+            out = dec_layer(resize_right.resize(out, scale_factors=2))
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = self.add_multiscale_map(i,out,fadernet_pyramid,self.n_concat_normals)
             out = dec_layer(out)
