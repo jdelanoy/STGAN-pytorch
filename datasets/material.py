@@ -245,9 +245,9 @@ class MaterialDataset(data.Dataset):
             else:
                 image,normals = self.transform(image,normals) 
         
+        normals = normals*normals[3:]
         if self.mask_input_bg:
             image = image*image[3:]
-            normals = normals*normals[3:]
             if self.use_illum: illum = illum*image[3:]
 
 
