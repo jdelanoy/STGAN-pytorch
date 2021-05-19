@@ -10,6 +10,10 @@ VERSION="faderNet" #"pix2pixHD"
 #all options are supposed to be true for new archi, false for faderNet
 LD_MULT_BN=False
 
+device='cpu'
+antialiasing=True
+interpolation=interp_methods.cubic
+
 
 def build_disc_layers(conv_dim=64, n_layers=6, max_dim = 512, in_channels = 3, activation='relu', normalization='batch',dropout=0):
     bias = normalization != 'batch'  # use bias only if we do not use a normalization layer  
@@ -126,12 +130,14 @@ def build_decoder_layers(conv_dim=64, n_layers=6, max_dim=512, im_channels=3, sk
 
 
 class Unet(nn.Module):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0, normalization='instance', first_conv=False, n_bottlenecks=2):
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0, normalization='instance', first_conv=False, n_bottlenecks=2, img_size=128, batch_size=32):
         super(Unet, self).__init__()
         self.n_layers = n_layers
         self.skip_connections = min(skip_connections, n_layers - 1)
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-
+        #self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.resize_layers=[]
+        for n in range(n_layers):
+            self.resize_layers.append(resize_right.ResizeLayer([batch_size,min(max_dim,conv_dim * 2 ** (n)),img_size/(2 ** (n+1)),img_size/(2 ** (n+1))], scale_factors=2, device=device, interp_method=interpolation, antialiasing=antialiasing))
         ##### build encoder
         self.encoder = Encoder(conv_dim,n_layers,max_dim,im_channels,vgg_like,normalization=normalization, first_conv=first_conv, n_bottlenecks=n_bottlenecks)
         ##### build decoder
@@ -153,7 +159,8 @@ class Unet(nn.Module):
         for i, dec_layer in enumerate(self.decoder):
             out = self.add_skip_connection(i,out,encodings)
             #out = dec_layer(self.up(out))
-            out = dec_layer(resize_right.resize(out, scale_factors=2))
+            #out = dec_layer(resize_right.resize(out, scale_factors=2))
+            out = dec_layer(self.resize_layers[self.n_layers-i-1])
         x = self.last_conv(out) 
         x = torch.tanh(x)
         x = x / torch.sqrt((x**2).sum(dim=1,keepdims=True))
@@ -166,8 +173,8 @@ class Unet(nn.Module):
 
 
 class FaderNetGenerator(Unet):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1, normalization='instance', first_conv=False, n_bottlenecks=2):
-        super(FaderNetGenerator, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like, normalization,first_conv,n_bottlenecks)
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1, normalization='instance', first_conv=False, n_bottlenecks=2, img_size=128, batch_size=32):
+        super(FaderNetGenerator, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like, normalization,first_conv,n_bottlenecks, img_size, batch_size)
         self.attr_dim = attr_dim
         self.n_attr_deconv = n_attr_deconv
         ##### change decoder : get attribute as input
@@ -207,8 +214,8 @@ class FaderNetGenerator(Unet):
         return self.decode(a,z,encodings)
 
 class FaderNetGeneratorWithNormals(FaderNetGenerator):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2):
-        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization,first_conv,n_bottlenecks)
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, img_size=128, batch_size=32):
+        super(FaderNetGeneratorWithNormals, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,normalization,first_conv,n_bottlenecks, img_size, batch_size)
         self.n_concat_normals = n_concat_normals
         self.first_conv=first_conv
         self.pretreat_attr=False
@@ -219,12 +226,16 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         self.decoder, self.last_conv = build_decoder_layers(conv_dim, n_layers, max_dim,3, skip_connections=skip_connections,vgg_like=0 if VERSION == "faderNet" else 3, attr_dim=attr_dim if not self.pretreat_attr else dim_attr_treat, n_attr_deconv=n_attr_deconv, additional_channels=additional_channels,normalization=normalization,first_conv=first_conv) #NEW vgg_like=3
         self.attr_FC = attribute_pre_treat(attr_dim,dim_attr_treat,dim_attr_treat,2)
 
+        self.resize_normals=[]
+        for n in range(n_concat_normals-1):
+            self.resize_normals.append(resize_right.ResizeLayer([batch_size,3,img_size,img_size], scale_factors=0.5**(n+1), device=device, interp_method=interpolation, antialiasing=antialiasing))
 
     def prepare_pyramid(self,map,n_levels):
         map_pyramid=[map]
         for i in range(n_levels-1):
             #map_pyramid.insert(0,nn.functional.interpolate(map_pyramid[0], mode='bilinear', align_corners=False, scale_factor=0.5))
-            map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
+            map_pyramid.insert(0,self.resize_normals[i](map))
+            #map_pyramid.insert(0,resize_right.resize(map_pyramid[0], scale_factors=0.5, interp_method=interp_methods.cubic,antialiasing=True))
         return map_pyramid
 
 
@@ -249,10 +260,10 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
         bneck=self.decoder_bottlenck(bneck,a)
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
             #out = self.up(out)
             out = resize_right.resize(out, scale_factors=2)
+            out = self.add_attribute(i,out,a)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = dec_layer(out)
             features.append(out)
@@ -268,8 +279,8 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
 
 
 class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
-    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True):
-        super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks)
+    def __init__(self, conv_dim=64, n_layers=5, max_dim=1024, im_channels=3, skip_connections=2,vgg_like=0,attr_dim=1,n_attr_deconv=1,n_concat_normals=1,normalization='instance', first_conv=False, n_bottlenecks=2, all_feat=True, img_size=128, batch_size=32):
+        super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks, img_size, batch_size)
         self.all_feat = all_feat
         self.pretreat_attr=False
         
@@ -292,10 +303,10 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         bneck=self.decoder_bottlenck(bneck,a)
         out=bneck
         for i, dec_layer in enumerate(self.decoder):
-            out = self.add_attribute(i,out,a)
             out = self.add_skip_connection(i,out,encodings)
             #out=self.up(out)
             out = resize_right.resize(out, scale_factors=2)
+            out = self.add_attribute(i,out,a)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
             out = self.add_multiscale_map(i,out,fadernet_pyramid,self.n_concat_normals)
             out = dec_layer(out)
