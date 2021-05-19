@@ -82,16 +82,16 @@ class FaderNetWithNormals2Steps(FaderNet):
                 #rescale if input image is size 256
                 #rescaled_im=nn.functional.interpolate(self.batch_Ia, mode='bilinear', align_corners=True, scale_factor=0.5)
                 #rescaled_normals=nn.functional.interpolate(self.get_normals(), mode='bilinear', align_corners=True, scale_factor=0.5)
-                rescaled_im=resize_right.resize(self.batch_Ia, scale_factor=0.5)
-                rescaled_normals=resize_right.resize(self.get_normals(), scale_factor=0.5)
+                rescaled_im=resize_right.resize(self.batch_Ia, scale_factors=0.5)
+                rescaled_normals=resize_right.resize(self.get_normals(), scale_factors=0.5)
 
                 encodings,z,_ = self.G_small.encode(rescaled_im)
                 fn_output, fn_features = self.G_small.decode_with_features(att,z,rescaled_normals,encodings)
             
                 #fn_output=nn.functional.interpolate(fn_output, mode='bilinear', align_corners=True, scale_factor=2)
                 #fn_features=[nn.functional.interpolate(map, mode='bilinear', align_corners=True, scale_factor=2) for map in fn_features]
-                fn_output=resize_right.resize(fn_output, scale_factor=2)
-                fn_features=[resize_right.resize(map, scale_factor=2) for map in fn_features]
+                fn_output=resize_right.resize(fn_output, scale_factors=2)
+                fn_features=[resize_right.resize(map, scale_factors=2) for map in fn_features]
                 return fn_output, fn_features, encodings
 
 
