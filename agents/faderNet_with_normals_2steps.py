@@ -26,16 +26,16 @@ class FaderNetWithNormals2Steps(FaderNet):
         print(self.G)
 
         ### load the normal predictor network
-        self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
+        #self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
         #self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
-        self.normal_G.eval()
+        #self.normal_G.eval()
 
         #load the small FaderNet
         self.G_small = FaderNetGeneratorWithNormals(conv_dim=32,n_layers=6,max_dim=512, im_channels=config.img_channels, skip_connections=0, vgg_like=0, attr_dim=len(config.attrs), n_attr_deconv=1, n_concat_normals=4, normalization=self.norm, first_conv=False, n_bottlenecks=2)
         #print(self.G_small) 
         self.load_model_from_path(self.G_small,config.faderNet_checkpoint)
         self.G_small.eval()
-
+        self.to_multi_GPU(self.G_small)
 
         self.logger.info("FaderNet with normals in 2 steps ready")
 
@@ -67,9 +67,9 @@ class FaderNetWithNormals2Steps(FaderNet):
 
     def get_normals(self):
         return self.batch_normals[:,:3]
-        with torch.no_grad():
-            normals=self.normal_G(self.batch_Ia)
-            return normals*self.batch_Ia[:,3:]
+        # with torch.no_grad():
+        #     normals=self.normal_G(self.batch_Ia)
+        #     return normals*self.batch_Ia[:,3:]
 
 
     def get_fadernet_output(self,att):

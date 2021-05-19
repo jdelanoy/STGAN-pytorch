@@ -101,7 +101,10 @@ class FaderNet(TrainingModule):
         self.LD.train()
         self.D.train()
 
-
+    def parallel_GPU(self):
+        self.to_multi_GPU(self.G)
+        self.to_multi_GPU(self.D)
+        self.to_multi_GPU(self.LD)
 
     ################################################################
     ##################### EVAL UTILITIES ###########################

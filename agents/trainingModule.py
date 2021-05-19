@@ -79,6 +79,9 @@ class TrainingModule(object):
         optimizer.zero_grad()
         loss.backward(retain_graph=True)
         optimizer.step()
+    def to_multi_GPU(self,model):
+        if self.config.ngpu>1:
+            model = nn.DataParallel(model, device_ids=list(range(self.config.ngpu)))
 
     ################################################################
     ################### LOSSES UTILITIES ###########################
@@ -149,6 +152,7 @@ class TrainingModule(object):
     def train(self):
         self.setup_all_optimizers()
         self.writer.add_hparams(dict(self.config),{"dumb_val":0})
+        self.parallel_GPU()
 
         # samples used for testing the net
         val_iter = iter(self.data_loader.val_loader)
@@ -231,6 +235,8 @@ class TrainingModule(object):
     def eval_mode(self):
         raise NotImplementedError
     def training_mode(self):
+        raise NotImplementedError
+    def parallel_GPU(self):
         raise NotImplementedError
 
 

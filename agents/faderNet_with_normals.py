@@ -25,9 +25,9 @@ class FaderNetWithNormals(FaderNet):
         print(self.G)
 
         ### load the normal predictor network
-        self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
+        #self.normal_G = Unet(conv_dim=config.g_conv_dim_normals,n_layers=config.g_layers_normals,max_dim=config.max_conv_dim_normals, im_channels=config.img_channels, skip_connections=config.skip_connections_normals, vgg_like=config.vgg_like_normals)
         #self.load_model_from_path(self.normal_G,config.normal_predictor_checkpoint)
-        self.normal_G.eval()
+        #self.normal_G.eval()
 
         self.logger.info("FaderNet with normals ready")
 
@@ -48,9 +48,9 @@ class FaderNetWithNormals(FaderNet):
 
     def get_normals(self):
         return self.batch_normals[:,:3]
-        with torch.no_grad():
-            normals=self.normal_G(self.batch_Ia)
-            return normals*self.batch_Ia[:,3:]
+        # with torch.no_grad():
+        #     normals=self.normal_G(self.batch_Ia)
+        #     return normals*self.batch_Ia[:,3:]
 
 
 
