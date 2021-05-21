@@ -10,7 +10,7 @@ import torch.optim as optim
 from torchsummary import summary
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
-
+from models.networks import MyDataParallel
 
 from utils.misc import print_cuda_statistics
 import numpy as np
@@ -152,7 +152,10 @@ class TrainingModule(object):
     def train(self):
         self.setup_all_optimizers()
         self.writer.add_hparams(dict(self.config),{"dumb_val":0})
-        self.parallel_GPU()
+        #self.parallel_GPU()
+        # self.G = MyDataParallel(self.G, device_ids=list(range(self.config.ngpu)))
+        # self.LD = MyDataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
+        # self.D = MyDataParallel(self.D, device_ids=list(range(self.config.ngpu)))
 
         # samples used for testing the net
         val_iter = iter(self.data_loader.val_loader)

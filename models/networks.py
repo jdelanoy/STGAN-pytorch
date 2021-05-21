@@ -5,7 +5,24 @@ import numpy as np
 from utils import resize_right, interp_methods
 from models.blocks import * 
 
+# class MyDataParallel(nn.DataParallel):
+#     def __getattr__(self, name):
+#         return getattr(self.module, name)
+class MyDataParallel(nn.Module):
+    def __init__(self, model, device_ids):
+        super(MyDataParallel, self).__init__()
+        self.model = nn.DataParallel(model, device_ids).cuda()
+        print(type(self.model))
 
+    def forward(self, *input):
+        return self.model(*input)
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.model.module, name)
+        
 VERSION="faderNet" #"pix2pixHD"
 #all options are supposed to be true for new archi, false for faderNet
 LD_MULT_BN=False
