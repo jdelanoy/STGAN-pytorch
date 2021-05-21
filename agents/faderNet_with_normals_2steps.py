@@ -35,7 +35,8 @@ class FaderNetWithNormals2Steps(FaderNet):
         #print(self.G_small) 
         self.load_model_from_path(self.G_small,config.faderNet_checkpoint)
         self.G_small.eval()
-        #self.to_multi_GPU(self.G_small)
+        
+        self.G_small=self.to_multi_GPU(self.G_small)
         #self.G_small = MyDataParallel(self.G_small, device_ids=list(range(self.config.ngpu)))
 
         self.logger.info("FaderNet with normals in 2 steps ready")

@@ -81,7 +81,9 @@ class TrainingModule(object):
         optimizer.step()
     def to_multi_GPU(self,model):
         if self.config.ngpu>1:
-            model = nn.DataParallel(model, device_ids=list(range(self.config.ngpu)))
+            return MyDataParallel(model, device_ids=list(range(self.config.ngpu)))
+        else:
+            return model
 
     ################################################################
     ################### LOSSES UTILITIES ###########################
@@ -152,7 +154,8 @@ class TrainingModule(object):
     def train(self):
         self.setup_all_optimizers()
         self.writer.add_hparams(dict(self.config),{"dumb_val":0})
-        #self.parallel_GPU()
+        
+        self.parallel_GPU()
         # self.G = MyDataParallel(self.G, device_ids=list(range(self.config.ngpu)))
         # self.LD = MyDataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
         # self.D = MyDataParallel(self.D, device_ids=list(range(self.config.ngpu)))
