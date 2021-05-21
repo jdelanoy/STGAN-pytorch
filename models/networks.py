@@ -27,7 +27,7 @@ VERSION="faderNet" #"pix2pixHD"
 #all options are supposed to be true for new archi, false for faderNet
 LD_MULT_BN=False
 
-device='cpu'
+device='cuda'
 antialiasing=True
 interpolation=interp_methods.cubic
 
@@ -259,8 +259,9 @@ class FaderNetGeneratorWithNormals(FaderNetGenerator):
     #adding the normal map at the right scale if needed
     def add_multiscale_map(self,i,out,map_pyramid,n_levels):
         shift = 0 if not self.first_conv else 1 #PIX2PIX there is one layer less than n_layers
-        if i >= self.n_layers-shift-n_levels: 
-            out = (torch.cat([out, map_pyramid[i-(self.n_layers-shift-n_levels)]], dim=1)) 
+        rank=i-(self.n_layers-shift-n_levels)
+        if rank >= 0 and rank<len(map_pyramid): 
+            out = (torch.cat([out, map_pyramid[rank]], dim=1)) 
         return out
 
     def decode(self, a, bneck, normals, encodings):
@@ -301,7 +302,7 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         self.all_feat = all_feat
         self.pretreat_attr=False
         
-        feat_channels=[8, 32, 64, 128, 256] 
+        feat_channels=[0, 8, 32, 64, 128, 256] 
         additional_channels=[3+feat_channels[i if all_feat else 0] for i in range(self.n_concat_normals)]
 
         dim_attr_treat=16
@@ -325,7 +326,7 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
             out = resize_right.resize(out, scale_factors=2)
             out = self.add_attribute(i,out,a)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
-            out = self.add_multiscale_map(i,out,fadernet_pyramid,self.n_concat_normals)
+            out = self.add_multiscale_map(i+1,out,fadernet_pyramid,self.n_concat_normals)
             out = dec_layer(out)
         x = self.last_conv(out)
         x = torch.tanh(x)

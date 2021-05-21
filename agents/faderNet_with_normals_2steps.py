@@ -35,7 +35,7 @@ class FaderNetWithNormals2Steps(FaderNet):
         #print(self.G_small) 
         self.load_model_from_path(self.G_small,config.faderNet_checkpoint)
         self.G_small.eval()
-        
+
         self.G_small=self.to_multi_GPU(self.G_small)
         #self.G_small = MyDataParallel(self.G_small, device_ids=list(range(self.config.ngpu)))
 
@@ -92,8 +92,8 @@ class FaderNetWithNormals2Steps(FaderNet):
             
                 #fn_output=nn.functional.interpolate(fn_output, mode='bilinear', align_corners=True, scale_factor=2)
                 #fn_features=[nn.functional.interpolate(map, mode='bilinear', align_corners=True, scale_factor=2) for map in fn_features]
-                fn_output=resize_right.resize(fn_output, scale_factors=2)
-                fn_features=[resize_right.resize(map, scale_factors=2) for map in fn_features]
+                #fn_output=resize_right.resize(fn_output, scale_factors=2)
+                #fn_features=[resize_right.resize(map, scale_factors=2) for map in fn_features]
                 return fn_output, fn_features, encodings
 
 
