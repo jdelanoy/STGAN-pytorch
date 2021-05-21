@@ -154,7 +154,7 @@ class TrainingModule(object):
     def train(self):
         self.setup_all_optimizers()
         self.writer.add_hparams(dict(self.config),{"dumb_val":0})
-        
+
         self.parallel_GPU()
         # self.G = MyDataParallel(self.G, device_ids=list(range(self.config.ngpu)))
         # self.LD = MyDataParallel(self.LD, device_ids=list(range(self.config.ngpu)))
@@ -214,6 +214,7 @@ class TrainingModule(object):
 
     def finalize(self):
         print('Please wait while finalizing the operation.. Thank you')
+        self.save_checkpoint()
         self.writer.export_scalars_to_json(os.path.join(self.config.summary_dir, 'all_scalars.json'))
         self.writer.close()
 
