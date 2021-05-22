@@ -301,6 +301,7 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         super(FaderNetGeneratorWithNormals2Steps, self).__init__(conv_dim, n_layers, max_dim, im_channels, skip_connections,vgg_like,attr_dim,n_attr_deconv,n_concat_normals,normalization,first_conv,n_bottlenecks, img_size, batch_size)
         self.all_feat = all_feat
         self.pretreat_attr=False
+        self.img_size=img_size
         
         feat_channels=[0, 8, 32, 64, 128, 256] 
         additional_channels=[3+feat_channels[i if all_feat else 0] for i in range(self.n_concat_normals)]
@@ -326,7 +327,7 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
             out = resize_right.resize(out, scale_factors=2)
             out = self.add_attribute(i,out,a)
             out = self.add_multiscale_map(i,out,normal_pyramid,self.n_concat_normals)
-            out = self.add_multiscale_map(i+1,out,fadernet_pyramid,self.n_concat_normals)
+            out = self.add_multiscale_map(i+(1 if self.img_size>128 else 0),out,fadernet_pyramid,self.n_concat_normals)
             out = dec_layer(out)
         x = self.last_conv(out)
         x = torch.tanh(x)
