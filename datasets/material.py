@@ -283,7 +283,7 @@ class MaterialDataLoader(object):
             self.train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
             self.train_iterations = int(math.ceil(len(train_set) / batch_size))
         else:
-            batch_size=53
+            batch_size=32
             test_set = MaterialDataset(root, 'test', selected_attrs, transform=val_trf, mask_input_bg=mask_input_bg, use_illum=use_illum)
             self.test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
             self.test_iterations = int(math.ceil(len(test_set) / batch_size))
@@ -306,9 +306,9 @@ class MaterialDataLoader(object):
             train_trf = T.Compose([
                 T.Resize(original_size), #suppose the dataset is of size 256
                 T.RandomHorizontalFlip(0.5), 
-                #T.RandomVerticalFlip(0.5),
-                #T.Random180DegRot(0.5),
-                #T.Random90DegRotClockWise(0.5),
+                T.RandomVerticalFlip(0.5),
+                T.Random180DegRot(0.5),
+                T.Random90DegRotClockWise(0.5),
                 T.Albumentations(50,50,0.5),
                 T.RandomCrop(size=self.crop_size),
                 T.RandomResize(low=original_size, high=int(original_size*1.1718)),
