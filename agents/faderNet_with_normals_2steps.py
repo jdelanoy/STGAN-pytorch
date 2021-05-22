@@ -92,7 +92,7 @@ class FaderNetWithNormals2Steps(FaderNet):
             
                 #fn_output=nn.functional.interpolate(fn_output, mode='bilinear', align_corners=True, scale_factor=2)
                 #fn_features=[nn.functional.interpolate(map, mode='bilinear', align_corners=True, scale_factor=2) for map in fn_features]
-                #fn_output=resize_right.resize(fn_output, scale_factors=2)
+                fn_output=resize_right.resize(fn_output, scale_factors=2)
                 #fn_features=[resize_right.resize(map, scale_factors=2) for map in fn_features]
                 return fn_output, fn_features, encodings
 
