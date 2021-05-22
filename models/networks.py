@@ -303,7 +303,8 @@ class FaderNetGeneratorWithNormals2Steps(FaderNetGeneratorWithNormals):
         self.pretreat_attr=False
         self.img_size=img_size
         
-        feat_channels=[0, 8, 32, 64, 128, 256] 
+        feat_channels=[8, 32, 64, 128, 256]
+        if self.img_size>128: feat_channels.insert(0,0)
         additional_channels=[3+feat_channels[i if all_feat else 0] for i in range(self.n_concat_normals)]
 
         dim_attr_treat=16
