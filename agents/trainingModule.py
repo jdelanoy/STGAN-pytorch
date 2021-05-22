@@ -214,7 +214,8 @@ class TrainingModule(object):
 
     def finalize(self):
         print('Please wait while finalizing the operation.. Thank you')
-        self.save_checkpoint()
+        if self.config.mode == "train": 
+            self.save_checkpoint()
         self.writer.export_scalars_to_json(os.path.join(self.config.summary_dir, 'all_scalars.json'))
         self.writer.close()
 
