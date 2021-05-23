@@ -254,7 +254,7 @@ class MaterialDataset(data.Dataset):
         if self.disentangled:
             return image,normals,illum, torch.FloatTensor(mat_attr), sampling_mode
         else:
-            return image,normals,illum, torch.FloatTensor(mat_attr)
+            return image,normals,self.files[index][:-4].split("/")[-1], torch.FloatTensor(mat_attr)
 
     def __len__(self):
         return len(self.files)

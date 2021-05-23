@@ -149,7 +149,7 @@ class TrainingModule(object):
             self.finalize()
 
     def batch_to_device(self,batch):
-        return [elem.to(self.device) for elem in batch]
+        return [elem.to(self.device) if isinstance(elem, torch.Tensor) else elem for elem in batch]
 
     def train(self):
         self.setup_all_optimizers()
