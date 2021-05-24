@@ -361,10 +361,9 @@ class FaderNet(TrainingModule):
     def output_results(self,batch,batch_id):
         self.batch_Ia, self.batch_normals, filename, self.batch_a_att = batch
         all_sample_list = self.create_interpolated_attr(self.batch_a_att, self.config.attrs,max_val=1)
-        path=os.path.join(self.config.result_dir,str(self.config.checkpoint),"real")
+        path=os.path.join(self.config.result_dir,str(self.config.checkpoint),"test")
         os.makedirs(path,exist_ok=True)
         batch_size=32
-#os.path.join(path, "{}_{}.png".format(i + 1,self.config.checkpoint))
 
         all_images=[]
         for c_sample_list in all_sample_list: #for each attr
@@ -376,18 +375,6 @@ class FaderNet(TrainingModule):
                 #print(fake_image.shape)
                 #write_labels_on_images(fake_image,c_trg_sample)
                 for i in range(fake_image.shape[0]):
-                    tvutils.save_image(fake_image[i],os.path.join(path, "{}_{}.png".format(filename[i],c_trg_sample[i].item())))
+                    attr_string=str(c_trg_sample[i].item()).replace('.','_')
+                    tvutils.save_image(fake_image[i],os.path.join(path, "{}_{}_{}.png".format(filename[i],self.config.attrs[0],attr_string)))
 
-        #         x_fake_list.append(fake_image)
-        #     all_images.append(x_fake_list)
-        # #interleave the images for each attribute
-        # size = all_images[0][0].shape
-        # x_fake_list = []
-        # for col in range(len(all_images[0])):
-        #     x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
-        # x_concat = torch.cat(x_fake_list, dim=3)
-        # image = tvutils.make_grid(denorm(x_concat,device=self.device), nrow=1)
-        # if writer:
-        #     self.writer.add_image('sample', image,self.current_iteration)
-        # if path:
-        #     tvutils.save_image(image,path)
