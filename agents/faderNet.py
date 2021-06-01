@@ -129,7 +129,7 @@ class FaderNet(TrainingModule):
         """Generate target domain labels for debugging and testing: linearly sample attribute. Contains a list for each attr"""
         all_lists=[]
         for i in range(len(selected_attrs)):
-            c_trg_list = [c_org]
+            c_trg_list = []#[c_org]
             alphas = [-max_val, -((max_val-1)/2.0+1), -1,-0.5,0,0.5,1,((max_val-1)/2.0+1), max_val]
             if max_val==1: alphas = linspace(-1,1,9) #[-1,-0.75,-0.5,0,0.5,1,]
             #alphas = np.linspace(-max_val, max_val, 10)
@@ -151,14 +151,15 @@ class FaderNet(TrainingModule):
             x_fake_list = self.init_sample_grid()
             for c_trg_sample in c_sample_list:
                 fake_image=self.forward(c_trg_sample)*self.batch_Ia[:,3:]
-                write_labels_on_images(fake_image,c_trg_sample)
+                fake_image=torch.cat([fake_image,self.batch_Ia[:,3:]],dim=1)
+                #write_labels_on_images(fake_image,c_trg_sample)
                 x_fake_list.append(fake_image)
             all_images.append(x_fake_list)
-        #interleave the images for each attribute
-        size = all_images[0][0].shape
-        x_fake_list = []
-        for col in range(len(all_images[0])):
-            x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
+        # #interleave the images for each attribute
+        # size = all_images[0][0].shape
+        # x_fake_list = []
+        # for col in range(len(all_images[0])):
+        #     x_fake_list.append(torch.stack([image[col] for image in all_images], dim=1).view(len(all_images)*size[0],size[1],size[2],size[3]))
         x_concat = torch.cat(x_fake_list, dim=3)
         image = tvutils.make_grid(denorm(x_concat,device=self.device), nrow=1)
         if writer:

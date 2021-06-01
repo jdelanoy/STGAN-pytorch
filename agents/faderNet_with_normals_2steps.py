@@ -64,6 +64,7 @@ class FaderNetWithNormals2Steps(FaderNet):
 
     def init_sample_grid(self):
         x_fake_list = [self.get_fadernet_output(self.batch_a_att)[0],self.batch_Ia[:,:3]]
+        x_fake_list = [self.batch_Ia[:,:]]
         return x_fake_list
 
 
