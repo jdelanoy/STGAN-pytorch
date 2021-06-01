@@ -211,7 +211,7 @@ class MaterialDataset(data.Dataset):
             cv2.mixChannels([image_rgb,mask], [normals], [0,0, 1,1, 2,2, 3,3])
         if self.mode == "test":
             #slighlty erode mask
-            element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
+            element = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
             normals[:,:,3] = cv2.dilate(normals[:,:,3], element)
         image = np.ndarray(normals.shape, dtype=np.uint8)
         cv2.mixChannels([image_rgb,normals], [image], [0,0, 1,1, 2,2, 6,3])
